@@ -1,5 +1,6 @@
 [Unit]
 Description=claude-vps watchdog
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

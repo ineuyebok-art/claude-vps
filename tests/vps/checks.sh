@@ -110,7 +110,7 @@ consume
 c 'crontab -r' 2>/dev/null
 watch_once; consume
 sudo -u claude -H nohup ssh -N -F /dev/null -o BatchMode=yes -o 'ProxyCommand=sleep 30' -R 9999:127.0.0.1:22 tunnel-target >/dev/null 2>&1 &
-sleep 1
+for _ in $(seq 1 100); do pgrep -u claude -x ssh >/dev/null && break; sleep 0.1; done
 watch_once
 if grep -qs 'туннель' /var/lib/ccbot/alerts/*.txt; then ok "ssh -R raises alert"; else bad "ssh -R raises alert"; fi
 pkill -u claude -x ssh
