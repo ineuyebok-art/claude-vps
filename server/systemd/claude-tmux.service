@@ -1,0 +1,19 @@
+[Unit]
+Description=tmux server for Claude tasks
+After=network.target
+
+[Service]
+User=claude
+Group=claude
+WorkingDirectory=/home/claude
+Environment=HOME=/home/claude
+Environment=LANG=C.UTF-8
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/claude/.local/bin
+# Nice наследуют все задачи: бот всегда отвечает первым.
+Nice=10
+ExecStart=/usr/bin/tmux -D -S /home/claude/.cc/tmux.sock -f /etc/claude-vps/tmux.conf
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

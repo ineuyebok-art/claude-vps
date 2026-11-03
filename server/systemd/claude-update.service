@@ -1,0 +1,10 @@
+[Unit]
+Description=Update Claude Code
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=claude
+Environment=HOME=/home/claude
+ExecStart=/home/claude/.local/bin/claude update
+SuccessExitStatus=0 1

@@ -1,0 +1,103 @@
+#!/usr/bin/python3 -I
+"""Единственный путь менять SSH-ключи. Запускается ботом от root через sudo.
+
+keys list                     — JSON: fingerprint, type, comment
+keys add <type> <b64> [имя]   — добавить ключ
+keys remove <fingerprint>     — удалить ключ и разорвать все SSH-сессии claude
+"""
+import base64
+import hashlib
+import json
+import os
+import re
+import struct
+import subprocess
+import sys
+import tempfile
+
+KEYS = os.environ.get("CCVPS_KEYS_FILE", "/etc/ssh/authorized_keys/claude")
+BASELINE = os.environ.get("CCVPS_KEYS_BASELINE", "/var/lib/claude-vps/keys.sha256")
+TYPES = {"ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384",
+         "ecdsa-sha2-nistp521", "sk-ssh-ed25519@openssh.com"}
+
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+
+def fingerprint(blob_b64):
+    blob = base64.b64decode(blob_b64)
+    digest = base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+    return "SHA256:" + digest
+
+
+def validate(ktype, blob_b64):
+    if ktype not in TYPES:
+        fail("Неизвестный тип ключа")
+    if not re.fullmatch(r"[A-Za-z0-9+/]{16,8192}={0,2}", blob_b64):
+        fail("Ключ повреждён")
+    blob = base64.b64decode(blob_b64)
+    size = struct.unpack(">I", blob[:4])[0]
+    if blob[4:4 + size].decode("ascii", "replace") != ktype:
+        fail("Ключ повреждён")
+
+
+def read_keys():
+    try:
+        with open(KEYS, encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    except FileNotFoundError:
+        return []
+    out = []
+    for ln in lines:
+        parts = ln.split(None, 2)
+        if len(parts) >= 2:
+            out.append({"type": parts[0], "b64": parts[1],
+                        "comment": parts[2] if len(parts) > 2 else "",
+                        "fingerprint": fingerprint(parts[1])})
+    return out
+
+
+def write_keys(keys):
+    text = "".join(f"{k['type']} {k['b64']} {k['comment']}".rstrip() + "\n" for k in keys)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(KEYS))
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, KEYS)
+    # Сторож знает, что это законное изменение.
+    with open(BASELINE, "w", encoding="ascii") as f:
+        f.write(hashlib.sha256(text.encode()).hexdigest() + "\n")
+    os.chmod(BASELINE, 0o600)
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    keys = read_keys()
+    if cmd == "list":
+        print(json.dumps([{k: v for k, v in key.items() if k != "b64"} for key in keys]))
+    elif cmd == "add" and len(sys.argv) >= 4:
+        ktype, blob = sys.argv[2], sys.argv[3]
+        validate(ktype, blob)
+        name = re.sub(r"[^\w.@-]", "_", sys.argv[4] if len(sys.argv) > 4 else "")[:60]
+        fp = fingerprint(blob)
+        if not any(k["fingerprint"] == fp for k in keys):
+            keys.append({"type": ktype, "b64": blob, "comment": name, "fingerprint": fp})
+            write_keys(keys)
+        print(fp)
+    elif cmd == "remove" and len(sys.argv) == 3:
+        kept = [k for k in keys if k["fingerprint"] != sys.argv[2]]
+        if len(kept) == len(keys):
+            fail("Ключ не найден")
+        write_keys(kept)
+        # Открытые соединения по удалённому ключу иначе остались бы жить.
+        # Остальные устройства переподключатся сами.
+        subprocess.run(["pkill", "-KILL", "-u", "claude", "-f", "^sshd(-session)?: claude"],
+                       check=False)
+        subprocess.run(["pkill", "-KILL", "-u", "claude", "-x", "mutagen-agent"], check=False)
+    else:
+        fail(__doc__)
+
+
+main()

@@ -1,0 +1,5 @@
+#!/usr/bin/python3 -I
+"""Хук Claude Code. Пока заглушка: подробности появятся на шаге задач."""
+import sys
+
+sys.stdin.read()

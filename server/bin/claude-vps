@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# claude-vps info   — адрес, страна, версия, пароль рабочего стола (с sudo: ещё пароль sudo)
+# claude-vps token  — заменить токен бота (нужен sudo)
+# claude-vps update — обновить из GitHub (нужен sudo)
+set -euo pipefail
+ETC=/etc/claude-vps
+BOTHOME=/var/lib/ccbot
+TG_API="$(cat "$ETC/telegram-api" 2>/dev/null || echo https://api.telegram.org)"
+
+info() {
+  local geo ip country home_dir
+  geo="$(curl -4 -fsS --max-time 8 https://ipinfo.io/json 2>/dev/null || true)"
+  ip="$(jq -r '.ip // "не определён"' <<<"${geo:-{\}}" 2>/dev/null || echo 'не определён')"
+  country="$(jq -r '.country // "не определена"' <<<"${geo:-{\}}" 2>/dev/null || echo 'не определена')"
+  echo "Сервер:  $ip, страна: $country"
+  echo "Версия:  $(cat "$ETC/commit" 2>/dev/null || echo 'неизвестна')"
+  home_dir=/home/claude
+  if [[ -r "$home_dir/.vnc/password" ]]; then
+    echo "Пароль рабочего стола: $(cat "$home_dir/.vnc/password")"
+  fi
+  if [[ $EUID -eq 0 ]]; then
+    echo "Пароль sudo: $(cat "$ETC/sudo-password")"
+    [[ ! -s "$BOTHOME/bind-code" ]] || echo "Код привязки бота: $(cat "$BOTHOME/bind-code")"
+  fi
+}
+
+token() {
+  [[ $EUID -eq 0 ]] || { echo "Нужно запускать так: sudo claude-vps token" >&2; exit 1; }
+  local new
+  printf 'Новый токен от @BotFather: ' >/dev/tty
+  IFS= read -rs new </dev/tty
+  printf '\n' >/dev/tty
+  new="${new//[[:space:]]/}"
+  curl -fsS --max-time 20 "$TG_API/bot$new/getMe" 2>/dev/null | grep -Eq '"ok": *true' ||
+    { echo "Telegram не принял токен, оставляю старый." >&2; exit 1; }
+  (umask 077 && printf '%s\n' "$new" >"$BOTHOME/token.new")
+  chown ccbot:ccbot "$BOTHOME/token.new"
+  mv -f "$BOTHOME/token.new" "$BOTHOME/token"
+  systemctl restart ccbot.service
+  echo "Токен заменён, бот перезапущен."
+}
+
+update() {
+  [[ $EUID -eq 0 ]] || { echo "Нужно запускать так: sudo claude-vps update" >&2; exit 1; }
+  curl -fsSL https://raw.githubusercontent.com/ineuyebok-art/claude-vps/main/install.sh | bash
+}
+
+case "${1:-info}" in
+  info) info ;;
+  token) token ;;
+  update) update ;;
+  *) echo "Использование: claude-vps info|token|update" >&2; exit 2 ;;
+esac

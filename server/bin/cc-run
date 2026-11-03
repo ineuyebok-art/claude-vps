@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Запускает Claude внутри tmux. После выхода из Claude окно остаётся терминалом.
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+args=()
+prompt=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prompt-file)
+      prompt="$(cat "$2")"
+      rm -f "$2"
+      shift 2
+      ;;
+    --resume)
+      args+=(--resume "$2")
+      shift 2
+      ;;
+    --model)
+      args+=(--model "$2")
+      shift 2
+      ;;
+    *) shift ;;
+  esac
+done
+trap : INT
+if [[ -n "$prompt" ]]; then
+  claude "${args[@]}" "$prompt"
+else
+  claude "${args[@]}"
+fi
+echo
+echo "Claude закрыт. Это обычный терминал. Продолжить: claude --continue"
+exec bash -l

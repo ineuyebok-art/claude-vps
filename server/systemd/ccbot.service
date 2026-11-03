@@ -1,0 +1,17 @@
+[Unit]
+Description=Claude Telegram bot
+After=network-online.target claude-tmux.service
+Wants=network-online.target
+
+[Service]
+User=ccbot
+Group=ccbot
+WorkingDirectory=/opt/claude-vps/bot
+Environment=LANG=C.UTF-8
+Environment=CCBOT_HOME=/var/lib/ccbot
+ExecStart=/usr/bin/python3 /opt/claude-vps/bot/main.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
