@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Выполняется при входе в рабочий стол: раскладки, общий буфер обмена.
+setxkbmap -layout us,ru -option '' -option grp:alt_shift_toggle
+exec vncconfig -nowin

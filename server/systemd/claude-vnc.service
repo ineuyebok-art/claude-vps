@@ -1,0 +1,14 @@
+[Unit]
+Description=VNC server (localhost only)
+After=network.target
+
+[Service]
+User=claude
+Group=claude
+Environment=HOME=/home/claude
+ExecStart=/usr/bin/Xtigervnc :1 -rfbport 5901 -localhost=1 -interface 127.0.0.1 -UseIPv6=0 -nolisten tcp -SecurityTypes VncAuth -PasswordFile /home/claude/.vnc/passwd -geometry 1600x900 -depth 24 -dpi 96 -AlwaysShared -AcceptSetDesktopSize=1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -232,6 +232,82 @@ install_claude_code() {
   [[ -x "$HOME_C/.local/bin/claude" ]] || die "Claude Code не установился: см. вывод выше."
 }
 
+# ---------------------------------------------------------- рабочий стол ---
+install_chromium() {
+  # Chromium из PPA xtradeb: в Ubuntu 24.04 пакет chromium-browser — только обёртка над snap.
+  if [[ "$CHROMIUM_MODE" == stub ]]; then
+    install -m 755 "$SRC/tests/stubs/chromium" /usr/local/bin/chromium
+    return 0
+  fi
+  if ! command -v chromium >/dev/null; then
+    apt-get install -y -qq --no-install-recommends software-properties-common >/dev/null
+    add-apt-repository -y -n ppa:xtradeb/apps >/dev/null
+    cat >/etc/apt/preferences.d/claude-vps-chromium <<'EOF2'
+Package: *
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 100
+
+Package: chromium*
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 700
+EOF2
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends chromium >/dev/null
+  fi
+  command -v chromium >/dev/null || die "Chromium не установился: см. вывод выше."
+
+  # В Ubuntu 24.04 AppArmor запрещает песочнице Chromium создавать user namespace.
+  local bin
+  bin="$(dpkg -L chromium 2>/dev/null | grep -E '/chromium$' | while read -r f; do
+    [[ -f "$f" && -x "$f" ]] && printf '%s\n' "$f"; done | grep -v '^/usr/bin' | head -1 || true)"
+  if [[ -n "$bin" ]] && command -v apparmor_parser >/dev/null && [[ ! -e /etc/apparmor.d/chromium ]]; then
+    cat >/etc/apparmor.d/claude-vps-chromium <<EOF2
+abi <abi/4.0>,
+include <tunables/global>
+profile claude-vps-chromium $bin flags=(unconfined) {
+  userns,
+}
+EOF2
+    apparmor_parser -r /etc/apparmor.d/claude-vps-chromium || warn "AppArmor не принял профиль Chromium."
+  fi
+}
+
+setup_desktop() {
+  CURRENT="рабочий стол"
+  step "Ставлю рабочий стол (пакетов много, это несколько минут)"
+  apt-get install -y -qq --no-install-recommends \
+    tigervnc-standalone-server tigervnc-common tigervnc-tools \
+    xfce4 xfce4-terminal dbus-x11 dbus-user-session x11-xkb-utils x11-xserver-utils xauth \
+    xdg-utils exo-utils adwaita-icon-theme fonts-dejavu fonts-noto-core fonts-noto-color-emoji >/dev/null
+  install_chromium
+
+  # Без пароля на диске VNC не стартует. Классический VNC читает только 8 знаков.
+  install -d -m 700 -o claude -g claude "$HOME_C/.vnc"
+  if [[ ! -s "$HOME_C/.vnc/password" ]]; then
+    (umask 077 && rand_pw 8 >"$HOME_C/.vnc/password")
+  fi
+  vncpasswd -f <"$HOME_C/.vnc/password" >"$HOME_C/.vnc/passwd"
+  chown claude:claude "$HOME_C/.vnc/password" "$HOME_C/.vnc/passwd"
+  chmod 600 "$HOME_C/.vnc/password" "$HOME_C/.vnc/passwd"
+
+  local d="$OPT/server/desktop" conf="$HOME_C/.config" xml
+  install -m 755 -o root -g root "$OPT/server/bin/desktop-init" "$LIB/desktop-init"
+  install -d -m 755 /etc/chromium/policies/managed /etc/chromium-browser/policies/managed
+  install -m 644 "$d/chromium-policy.json" /etc/chromium/policies/managed/claude-vps.json
+  install -m 644 "$d/chromium-policy.json" /etc/chromium-browser/policies/managed/claude-vps.json
+
+  xml="$conf/xfce4/xfconf/xfce-perchannel-xml"
+  as_claude install -d -m 755 "$conf" "$conf/autostart" "$conf/xfce4" "$conf/xfce4/xfconf" "$xml"
+  as_claude install -m 644 "$d/claude-vps-init.desktop" "$d/claude-vps-chromium.desktop" \
+    "$d/claude-vps-terminal.desktop" "$conf/autostart/"
+  as_claude install -m 644 "$d/helpers.rc" "$conf/xfce4/helpers.rc"
+  as_claude install -m 644 "$d/xfce4-session.xml" "$d/xfce4-power-manager.xml" "$xml/"
+  # Готовая панель: иначе первый запуск спрашивает, какую панель создать.
+  if [[ ! -f "$xml/xfce4-panel.xml" && -f /etc/xdg/xfce4/panel/default.xml ]]; then
+    as_claude install -m 644 /etc/xdg/xfce4/panel/default.xml "$xml/xfce4-panel.xml"
+  fi
+}
+
 # ------------------------------------------------------------------ службы ---
 setup_services() {
   CURRENT="службы"
@@ -258,6 +334,7 @@ setup_services() {
   # claude-tmux не перезапускаем: иначе обновление прервёт идущие задачи.
   systemctl enable --now claude-tmux.service >/dev/null
   systemctl enable --now claude-update.timer >/dev/null
+  systemctl enable --now claude-vnc.service claude-desktop.service >/dev/null
   systemctl enable ccbot.service >/dev/null
   systemctl restart ccbot.service
   sleep 2
@@ -346,13 +423,12 @@ EOF
 
 summary() {
   CURRENT="итог"
-  local bot_name vnc_note=""
+  local bot_name
   bot_name="$(curl -fsS --max-time 15 "$TG_API/bot$(cat "$BOTHOME/token")/getMe" 2>/dev/null |
     jq -r '.result.username // empty' 2>/dev/null || true)"
-  [[ -f "$HOME_C/.vnc/password" ]] || vnc_note=" (рабочий стол ещё не настроен)"
   printf '\n\033[1;32mГотово.\033[0m\n'
   printf '  Сервер:     %s, страна: %s\n' "${SERVER_IP:-не определён}" "${SERVER_COUNTRY:-не определена}"
-  printf '  Версия:     %s%s\n' "${COMMIT:0:12}" "$vnc_note"
+  printf '  Версия:     %s\n' "${COMMIT:0:12}"
   if [[ -n "$BIND_CODE" ]]; then
     printf '  Бот:        открой @%s и отправь код: \033[1m%s\033[0m\n' "${bot_name:-твой_бот}" "$BIND_CODE"
   else
@@ -374,6 +450,7 @@ main() {
   setup_users
   setup_home
   install_claude_code
+  setup_desktop
   setup_services
   make_bind_code
   setup_ipv6

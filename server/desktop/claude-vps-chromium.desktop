@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Chromium
+Exec=chromium --no-first-run --no-default-browser-check --password-store=basic https://claude.ai
+NoDisplay=true

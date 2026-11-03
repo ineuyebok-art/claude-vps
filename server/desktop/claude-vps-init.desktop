@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=claude-vps init
+Exec=/usr/local/lib/claude-vps/desktop-init
+NoDisplay=true

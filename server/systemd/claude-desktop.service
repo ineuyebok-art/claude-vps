@@ -1,0 +1,21 @@
+[Unit]
+Description=Xfce desktop on the VNC display
+After=claude-vnc.service
+BindsTo=claude-vnc.service
+
+[Service]
+User=claude
+Group=claude
+WorkingDirectory=/home/claude
+Environment=HOME=/home/claude
+Environment=DISPLAY=:1
+Environment=LANG=C.UTF-8
+Environment=BROWSER=chromium
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/claude/.local/bin
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 50); do [ -S /tmp/.X11-unix/X1 ] && exit 0; sleep 0.1; done; exit 1'
+ExecStart=/usr/bin/dbus-run-session -- /usr/bin/xfce4-session
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

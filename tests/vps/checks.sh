@@ -67,6 +67,27 @@ check "Claude Code installed" test -x /home/claude/.local/bin/claude
 check "auto-upgrades on" grep -q 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades
 check "second run kept sudo password" cmp /etc/claude-vps/sudo-password /tmp/pw1
 check "claude-vps info works" bash -c 'claude-vps info | grep -q "Пароль sudo"'
+echo "-- desktop"
+check "vnc service active" systemctl is-active claude-vnc
+check "desktop service active" systemctl is-active claude-desktop
+sleep 8
+d="$(ss -ltnH 'sport = :5901')"
+if [[ -n "$d" ]] && ! grep -vq '127\.0\.0\.1:5901' <<<"$d"; then ok "vnc listens on 127.0.0.1 only"; else bad "vnc listens on 127.0.0.1 only: $d"; fi
+check "vnc requires password (no type None)" python3 -c '
+import socket
+s=socket.create_connection(("127.0.0.1",5901)); s.recv(12); s.sendall(b"RFB 003.008\n")
+n=s.recv(1)[0]; t=s.recv(n); print(list(t)); raise SystemExit(0 if 2 in t and 1 not in t else 1)'
+check "vnc password mode 600" bash -c '[ "$(stat -c "%a %U" /home/claude/.vnc/password)" = "600 claude" ]'
+apt-get install -y -qq x11-utils scrot >/dev/null 2>&1
+tree="$(sudo -u claude -H env DISPLAY=:1 xwininfo -root -tree 2>&1)"
+if grep -qi 'chromium' <<<"$tree"; then ok "Chromium window is open"; else bad "Chromium window is open"; fi
+if grep -c 'Terminal' <<<"$tree" | grep -qv '^0$'; then ok "terminal window is open"; else bad "terminal window is open"; fi
+check "layouts us,ru with Alt+Shift" bash -c 'sudo -u claude -H env DISPLAY=:1 setxkbmap -query | grep -q "layout: *us,ru" && sudo -u claude -H env DISPLAY=:1 setxkbmap -query | grep -q alt_shift'
+check "clipboard helper running" pgrep -u claude -x vncconfig
+check "chromium downloads to inbox" grep -q '/home/claude/inbox' /etc/chromium/policies/managed/claude-vps.json
+check "desktop survives vnc restart" bash -c 'systemctl restart claude-vnc; sleep 6; systemctl is-active claude-desktop'
+sleep 6
+sudo -u claude -H env DISPLAY=:1 scrot -o /tmp/desktop.png 2>/dev/null
 check "cc starts a session" bash -c 'sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock new-session -d -s probe sleep 30'
 check "session survives under service" bash -c 'sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock has-session -t probe'
 exit "$fail"

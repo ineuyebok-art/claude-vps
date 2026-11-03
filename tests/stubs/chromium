@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Stands in for Chromium in container tests (the xtradeb PPA is unreachable there).
+exec xfce4-terminal --disable-server --title="Chromium stub" --hold --command="echo chromium-stub $*"

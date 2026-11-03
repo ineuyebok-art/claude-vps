@@ -15,7 +15,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$NAME")"
-docker exec "$NAME" bash -c 'apt-get update -qq && apt-get install -y -qq curl ca-certificates python3 >/dev/null'
+docker exec "$NAME" bash -c 'apt-get update -qq && apt-get install -y -qq curl ca-certificates python3 >/dev/null 2>&1'
 docker exec -d "$NAME" python3 /src/tests/stubs/telegram.py 18080
 sleep 1
 ENVS=(-e CCVPS_SRC=/src -e CCVPS_TELEGRAM_API=http://127.0.0.1:18080 -e CCVPS_TOKEN=123:TESTTOKENTESTTOKENTESTTOKENTESTTOKEN
@@ -28,6 +28,7 @@ docker exec "${ENVS[@]}" "$NAME" bash /src/install.sh | tail -8
 echo "=== checks"
 docker cp tests/vps/checks.sh "$NAME:/tmp/checks.sh"
 docker exec "$NAME" bash /tmp/checks.sh
+docker cp "$NAME:/tmp/desktop.png" /tmp/claude-0/desktop.png 2>/dev/null || true
 echo "=== external port scan of $IP"
 python3 tests/vps/portscan.py "$IP"
 echo "=== real ssh logins"
