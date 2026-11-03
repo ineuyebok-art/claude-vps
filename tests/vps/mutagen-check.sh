@@ -24,6 +24,13 @@ Host claude-vps
     UserKnownHostsFile /dev/null
     LogLevel ERROR
 CONF
+# OpenSSH takes the home folder from the passwd entry, so the config goes in through wrappers.
+mkdir "$tmp/bin"
+for tool in ssh scp; do
+  printf '#!/bin/sh\nexec /usr/bin/%s -F "%s" "$@"\n' "$tool" "$HOME/.ssh/config" >"$tmp/bin/$tool"
+  chmod +x "$tmp/bin/$tool"
+done
+export MUTAGEN_SSH_PATH="$tmp/bin"
 read -r t b _ <"$HOME/.ssh/claude-vps.pub"
 fp="$(docker exec "$NAME" sudo -u ccbot sudo -n /usr/local/lib/claude-vps/keys add "$t" "$b" sync-pc)"
 "$MUTAGEN" daemon start
@@ -49,8 +56,11 @@ on_server 'rm ~/inbox/link'
 flush
 
 # two-way-safe: the same file changed on both sides stays intact on both.
+# The session is paused so that both edits really happen before either side syncs.
+"$MUTAGEN" sync pause claude-inbox
 echo 'версия ПК' >"$tmp/pc/inbox/server.txt"
 on_server 'echo "версия сервера" > ~/inbox/server.txt'
+"$MUTAGEN" sync resume claude-inbox
 flush
 pc="$(cat "$tmp/pc/inbox/server.txt")"
 srv="$(on_server 'cat ~/inbox/server.txt')"

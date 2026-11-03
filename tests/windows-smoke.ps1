@@ -41,7 +41,7 @@ Assert-True ($text -match '203\.0\.113\.8' -and $text -notmatch '203\.0\.113\.7'
 Assert-True ($text -notmatch 'ForwardAgent yes') 'no agent forwarding'
 $bytes = [IO.File]::ReadAllBytes($config)
 Assert-True ($bytes[0] -ne 0xEF) 'ssh config has no BOM'
-$parsed = & ssh -G claude-vps
+$parsed = & ssh -F $config -G claude-vps
 Assert-True ($parsed -contains 'hostname 203.0.113.8') 'OpenSSH parses the config'
 Assert-True ($parsed -contains 'user claude') 'OpenSSH sees user claude'
 Assert-True ($parsed -contains 'stricthostkeychecking true') 'host key is pinned'
