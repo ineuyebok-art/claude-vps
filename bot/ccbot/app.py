@@ -105,6 +105,7 @@ class Bot:
         self.pending_input = {}
         self.project_lists = {}
         self.watches = {}
+        self.watch_proc = None
         self.stopped = threading.Event()
 
     # ---------------------------------------------------------------- цикл ---
@@ -136,6 +137,11 @@ class Bot:
             except Exception:  # noqa: BLE001 — цикл опроса не должен падать
                 log.exception("poll")
                 time.sleep(5)
+
+    def stop(self):
+        self.stopped.set()
+        if self.watch_proc:
+            self.watch_proc.kill()
 
     def dispatch(self, update):
         message = update.get("message")
@@ -625,7 +631,8 @@ class Bot:
     def events_loop(self):
         while not self.stopped.is_set():
             try:
-                proc = helper.popen(["watch"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                proc = self.watch_proc = helper.popen(["watch"], stdout=subprocess.PIPE,
+                                                      stderr=subprocess.DEVNULL)
                 for line in proc.stdout:
                     try:
                         self.on_event(json.loads(line))
@@ -634,9 +641,10 @@ class Bot:
                     except Exception:  # noqa: BLE001 — одно событие не рвёт поток
                         log.exception("event")
                 proc.wait()
+                proc.stdout.close()
             except OSError as exc:
                 log.warning("watch: %s", exc)
-            time.sleep(3)
+            self.stopped.wait(3)
 
     def on_event(self, event):
         if event.get("type") == "hook":

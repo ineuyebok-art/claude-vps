@@ -6,6 +6,7 @@ $STUB_DIR/sessions/<id>, so tests can check that context survives resume and for
 """
 import json
 import os
+import subprocess
 import sys
 import time
 import uuid
@@ -25,6 +26,9 @@ def history_path(session):
 def interactive(args):
     """`cc-run` starts the interactive TUI: echo lines so that tests can see the screen."""
     print("STUB TUI", *args, flush=True)
+    if any("СПАВН" in a for a in args):
+        script = "sleep 300 & echo $! > child; setsid nohup sleep 301 >/dev/null 2>&1 & echo $! > daemon; wait"
+        subprocess.Popen(["bash", "-c", script], cwd=DIR)
     for line in sys.stdin:
         print("GOT", line.strip(), flush=True)
 
