@@ -9,7 +9,6 @@ import tempfile
 import threading
 import time
 import unittest
-import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -30,7 +29,7 @@ STRANGER = 999
 class FakeTelegram:
     """Implements the Bot API methods the bot uses and records every call."""
 
-    def __init__(self):
+    def __init__(self, port=0):
         self.calls = []
         self.updates = []
         self.files = {}
@@ -71,7 +70,7 @@ class FakeTelegram:
                 self.end_headers()
                 self.wfile.write(data)
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
@@ -86,14 +85,15 @@ class FakeTelegram:
                 continue
             value = value[:-2]
             if b"filename=" in head:
-                filename = re.search(rb'filename="([^"]+)"', head).group(1).decode()
-                params["document_name"] = urllib.parse.unquote(filename)
+                params["document_name"] = re.search(rb'filename="([^"]+)"', head).group(1).decode()
                 params["document_bytes"] = value
             else:
                 params[name.group(1).decode()] = value.decode()
         return params
 
     def handle(self, method, params):
+        if method == "getUpdates" and params.get("timeout") and not self.updates:
+            time.sleep(0.2)  # long polling: an idle bot does not spin
         with self.lock:
             self.calls.append((method, params))
             if method == "getUpdates":

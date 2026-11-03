@@ -19,12 +19,18 @@ docker exec "$NAME" bash -c 'apt-get update -qq && apt-get install -y -qq curl c
 docker exec -d "$NAME" python3 /src/tests/stubs/telegram.py 18080
 sleep 1
 ENVS=(-e CCVPS_SRC=/src -e CCVPS_TELEGRAM_API=http://127.0.0.1:18080 -e CCVPS_TOKEN=123:TESTTOKENTESTTOKENTESTTOKENTESTTOKEN
-  -e CCVPS_CLAUDE_INSTALLER=/src/tests/stubs/claude-install.sh -e CCVPS_CHROMIUM="${CCVPS_CHROMIUM:-stub}")
+  -e CCVPS_CLAUDE_INSTALLER=/src/tests/stubs/claude-install.sh -e CCVPS_CHROMIUM=/src/tests/stubs/chromium)
 echo "=== first run"
 docker exec "${ENVS[@]}" "$NAME" bash /src/install.sh | tail -14
 docker exec "$NAME" cp /etc/claude-vps/sudo-password /tmp/pw1
+docker exec "$NAME" sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock new-session -d -s keepme sleep 600
 echo "=== second run"
 docker exec "${ENVS[@]}" "$NAME" bash /src/install.sh | tail -8
+docker exec "$NAME" sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock has-session -t keepme
+echo "  ok   running task survives an update"
+docker exec "$NAME" sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock kill-session -t keepme
+echo "=== install as curl | bash"
+bash tests/vps/pipe-check.sh "$NAME"
 echo "=== checks"
 docker cp tests/vps/checks.sh "$NAME:/tmp/checks.sh"
 docker exec "$NAME" bash /tmp/checks.sh
@@ -35,3 +41,7 @@ echo "=== real ssh logins"
 bash tests/vps/ssh-check.sh "$NAME" "$IP"
 echo "=== mutagen over ssh"
 bash tests/vps/mutagen-check.sh "$NAME" "$IP"
+echo "=== real bot behind sudo"
+docker exec "$NAME" python3 /src/tests/vps/bot-e2e.py
+echo "=== reboot"
+bash tests/vps/reboot-check.sh "$NAME"

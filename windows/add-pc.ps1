@@ -123,9 +123,15 @@ function Set-SshConfig([string]$Address, [string]$Key) {
     Set-ManagedBlock (Join-Path $script:SshDir 'config') $block
 }
 
-function Test-ServerLogin {
-    & ssh -o BatchMode=yes -o ConnectTimeout=8 claude-vps true 2>$null
+function Test-NativeSuccess([string]$Path, [string[]]$Arguments) {
+    # В Windows PowerShell 5.1 перенаправленный stderr при Stop становится ошибкой.
+    $ErrorActionPreference = 'Continue'
+    & $Path @Arguments 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
+}
+
+function Test-ServerLogin {
+    return (Test-NativeSuccess 'ssh' @('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', 'claude-vps', 'true'))
 }
 
 function Wait-KeyConfirmed {
@@ -156,8 +162,7 @@ function Set-Sync {
     $mutagen = Find-Tool 'mutagen'
     & $mutagen daemon start
     foreach ($name in $script:Folders) {
-        & $mutagen sync list "claude-$name" 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        if (-not (Test-NativeSuccess $mutagen @('sync', 'list', "claude-$name"))) {
             & $mutagen @(Get-SyncArgument $name 'claude-vps')
             if ($LASTEXITCODE -ne 0) { throw "Не удалось создать синхронизацию $name." }
         }

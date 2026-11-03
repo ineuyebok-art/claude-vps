@@ -1,6 +1,7 @@
 """Клиент Telegram Bot API на urllib."""
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -53,9 +54,9 @@ class Telegram:
                 # В тексте ошибки urllib может быть адрес с токеном: наружу не отдаём.
                 raise TelegramError(f"сеть: {type(exc).__name__}") from None
 
-    def call(self, method, timeout=40, **params):
+    def call(self, method, http_timeout=40, **params):
         params = {k: v for k, v in params.items() if v is not None}
-        return self._post(method, json.dumps(params).encode(), "application/json", timeout)
+        return self._post(method, json.dumps(params).encode(), "application/json", http_timeout)
 
     def send(self, chat_id, text, **params):
         return self.call("sendMessage", chat_id=chat_id, text=text, **params)
@@ -87,9 +88,9 @@ class Telegram:
         chunks = []
         for key, value in fields.items():
             chunks.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode())
-        quoted = urllib.parse.quote(name)
+        safe = re.sub(r'["\r\n\\]', "_", name)
         chunks.append((f'--{boundary}\r\nContent-Disposition: form-data; name="document"; '
-                       f"filename=\"{quoted}\"; filename*=UTF-8''{quoted}\r\n"
+                       f'filename="{safe}"\r\n'
                        "Content-Type: application/octet-stream\r\n\r\n").encode())
         chunks.append(payload)
         chunks.append(f"\r\n--{boundary}--\r\n".encode())

@@ -1,4 +1,5 @@
 """The bot driving the real `claude` binary against a fake API. Skipped where claude is absent."""
+import json
 import os
 import shutil
 import stat
@@ -50,6 +51,35 @@ class RealClaude(BotCase):
         self.press(self.button_data("Нет"))
         self.wait_text("Настоящий ответ", 60)
         self.assertFalse((self.tmp / "ran").exists())
+
+    def settings(self):
+        (self.home / ".claude/settings.json").write_text(json.dumps({"permissions": {
+            "additionalDirectories": [str(self.home / "inbox"), str(self.home / "outbox")]}}), encoding="utf-8")
+
+    def test_write_to_outbox_needs_no_question(self):
+        self.settings()
+        target = self.home / "outbox/result.txt"
+        self.message(text=f"RUNWRITE:{target} сделай")
+        self.wait(target.exists, 60, "file in outbox")
+        self.wait_text("Настоящий ответ", 60)
+        self.assertFalse(any("Claude просит" in t for t in self.fake.texts()))
+
+    def test_write_to_current_project_needs_no_question(self):
+        self.settings()
+        target = self.home / "chat/note.txt"
+        self.message(text=f"RUNWRITE:{target} сделай")
+        self.wait(target.exists, 60, "file in project")
+        self.assertFalse(any("Claude просит" in t for t in self.fake.texts()))
+
+    def test_write_outside_needs_permission(self):
+        self.settings()
+        target = self.home / ".ssh/authorized_keys"
+        self.message(text=f"RUNWRITE:{target} сделай")
+        self.wait_text("Claude просит разрешение", 60)
+        self.wait(lambda: self.button_data("Нет"), 5, "buttons")
+        self.press(self.button_data("Нет"))
+        self.wait_text("Настоящий ответ", 60)
+        self.assertFalse(target.exists())
 
     def test_parallel_fork_answers_while_first_runs(self):
         self.message(text="SLOW первый")

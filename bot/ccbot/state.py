@@ -22,7 +22,7 @@ class State:
         self.path = path
         self.lock = threading.RLock()
         self.data = {"accounts": {}, "codes": {}, "messages": {}, "updates": [],
-                     "offset": 0, "always": [], "file_ids": {}}
+                     "offset": 0, "always": []}
         if path.exists():
             self.data.update(json.loads(path.read_text(encoding="utf-8")))
 

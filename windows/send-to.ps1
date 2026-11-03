@@ -18,10 +18,12 @@ function Get-InboxName([string]$Name, [string]$Folder) {
     return $candidate
 }
 
-function Sync-Inbox {
+function Wait-Sync {
+    # Без сети flush ждал бы вечно: через минуту отдаём результат, файл догонит сам.
     $mutagen = Get-Command mutagen -ErrorAction SilentlyContinue
     $path = if ($mutagen) { $mutagen.Source } else { Join-Path $env:LOCALAPPDATA 'ClaudeVPS\mutagen\mutagen.exe' }
-    & $path sync flush claude-inbox | Out-Null
+    $process = Start-Process $path -ArgumentList 'sync', 'flush', 'claude-inbox' -WindowStyle Hidden -PassThru
+    if (-not $process.WaitForExit(60000)) { Stop-Process -Id $process.Id -Force }
 }
 
 $mentions = foreach ($path in $Paths) {
@@ -29,5 +31,5 @@ $mentions = foreach ($path in $Paths) {
     Copy-Item -LiteralPath $path -Destination (Join-Path $inbox $name) -Recurse
     "@~/inbox/$name"
 }
-Sync-Inbox
+Wait-Sync
 Set-Clipboard -Value ($mentions -join ' ')

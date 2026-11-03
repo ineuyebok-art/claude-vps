@@ -116,7 +116,8 @@ class Bot:
             log.warning("setMyCommands: %s", exc)
 
     def poll_once(self, timeout=50):
-        updates = self.tg.call("getUpdates", timeout=timeout + 15, offset=self.state.data["offset"],
+        updates = self.tg.call("getUpdates", http_timeout=timeout + 15, timeout=timeout,
+                               offset=self.state.data["offset"],
                                allowed_updates=["message", "callback_query"]) or []
         for update in updates:
             if self.state.seen_update(update["update_id"]):
@@ -229,13 +230,17 @@ class Bot:
         info = self.state.message(chat_id, reply["message_id"]) if reply else None
         if info and info.get("kind") == "task" and text:
             helper.text(["task-text", info["task"]], stdin=text)
-            self.tg.send(chat_id, "Отправил в задачу.", reply_to_message_id=message["message_id"])
+            self.tg.send(chat_id, "Отправил в задачу.", reply_parameters=self.reply_to(message))
             return
         key = KEY_RE.match(text)
         if key:
             self.offer_key(user_id, chat_id, key)
             return
         self.ask_from_messages(user_id, chat_id, messages, info)
+
+    @staticmethod
+    def reply_to(message):
+        return {"message_id": message["message_id"], "allow_sending_without_reply": True}
 
     def collect_text(self, messages):
         parts = []
@@ -277,8 +282,7 @@ class Bot:
 
     def ask_from_messages(self, user_id, chat_id, messages, info):
         notices = []
-        placeholder = self.tg.send_html(chat_id, "<i>Думаю…</i>",
-                                        reply_to_message_id=messages[0]["message_id"])
+        placeholder = self.tg.send_html(chat_id, "<i>Думаю…</i>", reply_parameters=self.reply_to(messages[0]))
         stream = Stream(self, chat_id, placeholder["message_id"])
         text = self.collect_text(messages)
         paths = self.save_attachments(messages, notices)

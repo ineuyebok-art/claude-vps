@@ -12,7 +12,8 @@ import time
 import uuid
 from pathlib import Path
 
-DIR = Path(os.environ["STUB_DIR"])
+DIR = Path(os.environ.get("STUB_DIR") or Path.home() / ".stub")
+DIR.mkdir(exist_ok=True)
 
 
 def emit(obj):

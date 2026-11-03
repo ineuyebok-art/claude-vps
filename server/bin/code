@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# code <файл> — открыть файл в подключённом окне VS Code, в том числе из tmux,
+# где у Claude нет переменных терминала VS Code.
+set -u
+mapfile -t tools < <(ls -t "$HOME"/.vscode-server/cli/servers/*/server/bin/remote-cli/code \
+  "$HOME"/.vscode-server/bin/*/bin/remote-cli/code 2>/dev/null)
+if [[ ${#tools[@]} -eq 0 ]]; then
+  echo "VS Code ещё не подключался к серверу: открой ярлык «Claude — VS Code»." >&2
+  exit 1
+fi
+if [[ -n "${VSCODE_IPC_HOOK_CLI:-}" && -S "$VSCODE_IPC_HOOK_CLI" ]]; then
+  exec "${tools[0]}" "$@"
+fi
+mapfile -t sockets < <(ls -t "/run/user/$(id -u)"/vscode-ipc-*.sock /tmp/vscode-ipc-*.sock 2>/dev/null)
+for sock in "${sockets[@]}"; do
+  # Старые сокеты остаются после закрытия окон: берём первый живой.
+  if python3 -I -c 'import socket, sys
+s = socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect(sys.argv[1])' "$sock" 2>/dev/null; then
+    VSCODE_IPC_HOOK_CLI="$sock" exec "${tools[0]}" "$@"
+  fi
+done
+echo "Окно VS Code не открыто: открой ярлык «Claude — VS Code» и повтори." >&2
+exit 1

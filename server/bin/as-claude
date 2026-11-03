@@ -101,9 +101,9 @@ def instructions_set(_args):
 # ---------------------------------------------------------------- Claude ---
 def inside_home(path):
     real = os.path.realpath(path)
-    allowed = (str(HOME / "chat"), str(HOME / "projects"))
-    if not any(real == a or real.startswith(a + os.sep) for a in allowed):
-        fail("Папка вне ~/chat и ~/projects: " + path)
+    home = os.path.realpath(HOME)
+    if real != home and not real.startswith(home + os.sep):
+        fail("Папка вне домашней: " + path)
     if not os.path.isdir(real):
         fail("Нет папки: " + path)
     return real
@@ -129,8 +129,8 @@ def auth_status(_args):
     try:
         conf = json.loads((HOME / ".claude.json").read_text(encoding="utf-8"))
         account = conf.get("oauthAccount") or {}
-        result.setdefault("orgId", account.get("organizationUuid"))
-        result.setdefault("email", account.get("emailAddress"))
+        result["orgId"] = result.get("orgId") or account.get("organizationUuid")
+        result["email"] = result.get("email") or account.get("emailAddress")
     except (OSError, ValueError):
         pass
     out({k: result.get(k) for k in ("loggedIn", "orgId", "email", "subscriptionType")})

@@ -8,7 +8,7 @@
 
 set -Eeuo pipefail
 
-REPO_URL="https://github.com/ineuyebok-art/claude-vps.git"
+REPO_URL="${CCVPS_REPO:-https://github.com/ineuyebok-art/claude-vps.git}"
 OPT=/opt/claude-vps
 ETC=/etc/claude-vps
 LIB=/usr/local/lib/claude-vps
@@ -155,6 +155,7 @@ setup_users() {
   done
   install -m 755 -o root -g root "$OPT/server/bin/cc" /usr/local/bin/cc
   install -m 755 -o root -g root "$OPT/server/bin/claude-vps" /usr/local/bin/claude-vps
+  install -m 755 -o root -g root "$OPT/server/bin/code" /usr/local/bin/code
   install -m 644 -o root -g root "$OPT/server/tmux.conf" "$ETC/tmux.conf"
 
   local sudoers
@@ -202,13 +203,12 @@ setup_home() {
   install -m 600 -o claude -g claude "$tmp" "$settings"
   rm -f "$tmp"
 
-  # Windows Terminal и VS Code не ищут ~/.local/bin: он нужен в PATH и для ssh host cmd.
-  # shellcheck disable=SC2016 # $HOME раскроется в .bashrc
-  local line='export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"'
-  grep -qxF "$line" "$HOME_C/.bashrc" 2>/dev/null || {
-    sed -i "1i $line" "$HOME_C/.bashrc"
-    chown claude:claude "$HOME_C/.bashrc"
-  }
+  # ~/.local/bin — в конец PATH: иначе обманутый Claude подменил бы там sudo.
+  # PATH не перезаписываем: терминал VS Code кладёт туда свою команду code.
+  # shellcheck disable=SC2016 # $PATH раскроется в .bashrc
+  local line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$PATH:$HOME/.local/bin" ;; esac'
+  grep -qxF "$line" "$HOME_C/.bashrc" 2>/dev/null || echo "$line" >>"$HOME_C/.bashrc"
+  chown claude:claude "$HOME_C/.bashrc"
 }
 
 install_claude_code() {
@@ -235,12 +235,12 @@ install_claude_code() {
 # ---------------------------------------------------------- рабочий стол ---
 install_chromium() {
   # Chromium из PPA xtradeb: в Ubuntu 24.04 пакет chromium-browser — только обёртка над snap.
-  if [[ "$CHROMIUM_MODE" == stub ]]; then
-    install -m 755 "$SRC/tests/stubs/chromium" /usr/local/bin/chromium
+  if [[ "$CHROMIUM_MODE" != ppa ]]; then
+    install -m 755 "$CHROMIUM_MODE" /usr/local/bin/chromium
     return 0
   fi
   if ! command -v chromium >/dev/null; then
-    apt-get install -y -qq --no-install-recommends software-properties-common >/dev/null
+    apt-get install -y -qq --no-install-recommends software-properties-common python3-launchpadlib >/dev/null
     add-apt-repository -y -n ppa:xtradeb/apps >/dev/null
     cat >/etc/apt/preferences.d/claude-vps-chromium <<'EOF2'
 Package: *

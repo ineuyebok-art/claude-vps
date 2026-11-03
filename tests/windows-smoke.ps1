@@ -46,6 +46,10 @@ Assert-True ($parsed -contains 'hostname 203.0.113.8') 'OpenSSH parses the confi
 Assert-True ($parsed -contains 'user claude') 'OpenSSH sees user claude'
 Assert-True ($parsed -contains 'stricthostkeychecking true') 'host key is pinned'
 
+Assert-True (-not (Test-NativeSuccess 'cmd.exe' @('/c', 'echo oops 1>&2 & exit 3'))) 'failing tool with stderr is not fatal'
+Assert-True (Test-NativeSuccess 'cmd.exe' @('/c', 'exit 0')) 'succeeding tool is detected'
+Assert-True (-not (Test-ServerLogin)) 'unreachable server is a clean false'
+
 New-RootFolder
 foreach ($name in 'inbox', 'outbox', 'chat') {
     Assert-True (Test-Path (Join-Path $script:Root $name)) "folder $name"

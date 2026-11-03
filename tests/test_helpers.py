@@ -2,6 +2,8 @@
 import base64
 import json
 import os
+import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -91,6 +93,38 @@ class Inbox(Base):
         self.run_helper("write-inbox", "../../evil", stdin="x")
         self.assertFalse((self.home.parent / "evil").exists())
         self.assertTrue((self.home / "inbox/evil").exists())
+
+
+class CodeWrapper(Base):
+    def setUp(self):
+        super().setUp()
+        tool = self.home / ".vscode-server/cli/servers/Stable-abc/server/bin/remote-cli/code"
+        tool.parent.mkdir(parents=True)
+        tool.write_text('#!/bin/sh\necho "opened $1 via $VSCODE_IPC_HOOK_CLI"\n', encoding="utf-8")
+        tool.chmod(0o755)
+        self.env.update(HOME=str(self.home))
+        self.env.pop("VSCODE_IPC_HOOK_CLI", None)
+
+    def code(self):
+        return subprocess.run([str(ROOT / "server/bin/code"), "a.html"], capture_output=True, text=True,
+                              env=self.env, check=False)
+
+    def test_inherited_socket_is_used(self):
+        server = socket.socket(socket.AF_UNIX)
+        path = str(self.home / "s.sock")
+        server.bind(path)
+        self.addCleanup(server.close)
+        self.env["VSCODE_IPC_HOOK_CLI"] = path
+        self.assertIn(f"via {path}", self.code().stdout)
+
+    def test_no_window_explains(self):
+        res = self.code()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("VS Code", res.stderr)
+
+    def test_never_connected_explains(self):
+        shutil.rmtree(self.home / ".vscode-server")
+        self.assertIn("ещё не подключался", self.code().stderr)
 
 
 class Claude(Base):

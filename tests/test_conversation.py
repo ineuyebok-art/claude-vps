@@ -90,6 +90,15 @@ class Conversation(BotCase):
         time.sleep(0.3)
         self.assertEqual(len(self.calls()), 1)
 
+    def test_long_polling_is_really_long(self):
+        self.bot.poll_once(7)
+        params = self.fake.sent("getUpdates")[-1]
+        self.assertEqual(params["timeout"], 7)  # without it the bot would hammer Telegram
+
+    def test_cyrillic_document_name_is_sent_raw(self):
+        self.bot.tg.send_document(OWNER, "отчёт.txt", b"x")
+        self.assertEqual(self.fake.sent("sendDocument")[0]["document_name"], "отчёт.txt")
+
     def test_seen_updates_survive_restart(self):
         self.state.seen_update(77)
         again = type(self.state)(self.state.path)
