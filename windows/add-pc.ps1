@@ -191,14 +191,18 @@ function Save-RepoFile([string]$Commit) {
 function New-AppShortcut {
     param([string]$Path, [string]$Target, [string]$Arguments = '', [string]$HotKey = '', [int]$Style = 1,
         [string]$Icon = '')
+    # WScript.Shell не сохраняет файл с символами вне системной кодировки: создаём под латинским
+    # именем и переименовываем.
+    $temporary = Join-Path (Split-Path $Path) "claude-vps-$([Guid]::NewGuid().ToString('N')).lnk"
     $shell = New-Object -ComObject WScript.Shell
-    $link = $shell.CreateShortcut($Path)
+    $link = $shell.CreateShortcut($temporary)
     $link.TargetPath = $Target
     $link.Arguments = $Arguments
     $link.WindowStyle = $Style
     if ($HotKey) { $link.Hotkey = $HotKey }
     if ($Icon) { $link.IconLocation = $Icon }
     $link.Save()
+    Move-Item -LiteralPath $temporary -Destination $Path -Force
 }
 
 function Get-HiddenPowerShellArgument([string]$Script) {

@@ -58,8 +58,10 @@ Assert-True ($sync -contains '--ignore=desktop.ini') 'desktop.ini ignored'
 
 $link = Join-Path $work 'test — ярлык.lnk'
 New-AppShortcut $link 'C:\Windows\explorer.exe' 'C:\Claude' -HotKey 'CTRL+ALT+V'
-$read = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
-Assert-True ($read.Arguments -eq 'C:\Claude') 'shortcut with a cyrillic name'
+Assert-True (Test-Path -LiteralPath $link) 'shortcut with a cyrillic name exists'
+Copy-Item -LiteralPath $link (Join-Path $work 'ascii.lnk')
+$read = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $work 'ascii.lnk'))
+Assert-True ($read.Arguments -eq 'C:\Claude') 'shortcut keeps its arguments'
 Assert-True ($read.Hotkey -match 'V') 'shortcut hotkey stored'
 
 $settings = Join-Path $work 'code\settings.json'
