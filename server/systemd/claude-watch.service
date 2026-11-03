@@ -1,0 +1,6 @@
+[Unit]
+Description=claude-vps watchdog
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/claude-vps/watch

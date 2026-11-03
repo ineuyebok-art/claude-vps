@@ -88,6 +88,35 @@ check "chromium downloads to inbox" grep -q '/home/claude/inbox' /etc/chromium/p
 check "desktop survives vnc restart" bash -c 'systemctl restart claude-vnc; sleep 6; systemctl is-active claude-desktop'
 sleep 6
 sudo -u claude -H env DISPLAY=:1 scrot -o /tmp/desktop.png 2>/dev/null
+echo "-- watchdog"
+check "watch timer enabled" systemctl is-enabled claude-watch.timer
+alerts() { find /var/lib/ccbot/alerts -name '*.txt' | wc -l; }
+watch_once() { systemctl start claude-watch.service; sleep 1; }
+consume() { rm -f /var/lib/ccbot/alerts/*.txt; }
+systemctl stop ccbot   # keep alert files for inspection
+consume; watch_once
+if [[ "$(alerts)" = 0 ]]; then ok "quiet after install"; else bad "quiet after install"; fi
+cp /etc/ssh/authorized_keys/claude /tmp/keys.bak
+echo "ssh-ed25519 AAAAmanual evil" >>/etc/ssh/authorized_keys/claude
+watch_once
+if [[ "$(alerts)" -ge 1 ]]; then ok "manual key raises alert"; else bad "manual key raises alert"; fi
+consume
+cp /tmp/keys.bak /etc/ssh/authorized_keys/claude
+watch_once; consume
+c '(echo "@reboot /tmp/evil") | crontab -' 2>/dev/null
+watch_once
+if grep -qs '@reboot' /var/lib/ccbot/alerts/*.txt; then ok "cron @reboot raises alert"; else bad "cron @reboot raises alert"; fi
+consume
+c 'crontab -r' 2>/dev/null
+watch_once; consume
+sudo -u claude -H nohup ssh -N -F /dev/null -o BatchMode=yes -o 'ProxyCommand=sleep 30' -R 9999:127.0.0.1:22 tunnel-target >/dev/null 2>&1 &
+sleep 1
+watch_once
+if grep -qs 'туннель' /var/lib/ccbot/alerts/*.txt; then ok "ssh -R raises alert"; else bad "ssh -R raises alert"; fi
+pkill -u claude -x ssh
+pkill -u claude -x sleep
+consume
+systemctl start ccbot
 check "cc starts a session" bash -c 'sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock new-session -d -s probe sleep 30'
 check "session survives under service" bash -c 'sudo -u claude -H tmux -S /home/claude/.cc/tmux.sock has-session -t probe'
 exit "$fail"

@@ -1,5 +1,6 @@
 """Test harness: fake Telegram API, stubbed `claude`, real as-claude helper, temp home."""
 import json
+import logging
 import os
 import re
 import shutil
@@ -18,6 +19,8 @@ sys.path.insert(0, str(ROOT / "bot"))
 from ccbot import app, config  # noqa: E402
 from ccbot.state import State  # noqa: E402
 from ccbot.tg import Telegram  # noqa: E402
+
+logging.disable(logging.CRITICAL)  # threads outliving a test would only add noise
 
 OWNER = 111
 SECOND = 222

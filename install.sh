@@ -312,7 +312,7 @@ setup_desktop() {
 setup_services() {
   CURRENT="службы"
   step "Настраиваю службы"
-  install -d -m 700 -o ccbot -g ccbot "$BOTHOME"
+  install -d -m 700 -o ccbot -g ccbot "$BOTHOME" "$BOTHOME/alerts"
   if [[ -n "$TOKEN" ]]; then
     (umask 077 && printf '%s\n' "$TOKEN" >"$BOTHOME/token")
   fi
@@ -333,7 +333,7 @@ setup_services() {
 
   # claude-tmux не перезапускаем: иначе обновление прервёт идущие задачи.
   systemctl enable --now claude-tmux.service >/dev/null
-  systemctl enable --now claude-update.timer >/dev/null
+  systemctl enable --now claude-update.timer claude-watch.timer >/dev/null
   systemctl enable --now claude-vnc.service claude-desktop.service >/dev/null
   systemctl enable ccbot.service >/dev/null
   systemctl restart ccbot.service
@@ -456,6 +456,7 @@ main() {
   setup_ipv6
   setup_firewall
   lock_ssh
+  systemctl start claude-watch.service
   summary
 }
 

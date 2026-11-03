@@ -1,0 +1,151 @@
+#!/usr/bin/python3 -I
+"""Сторож: раз в минуту от root ищет следы взлома и кладёт тревогу для бота.
+
+Смотрит на SSH-ключи, cron и systemd-юниты пользователя claude, исходящие SSH-туннели.
+"""
+import hashlib
+import json
+import os
+import pwd
+import time
+from pathlib import Path
+
+KEYS = Path(os.environ.get("CCVPS_KEYS_FILE", "/etc/ssh/authorized_keys/claude"))
+BASELINE = Path(os.environ.get("CCVPS_KEYS_BASELINE", "/var/lib/claude-vps/keys.sha256"))
+STATE = Path(os.environ.get("CCVPS_WATCH_STATE", "/var/lib/claude-vps/watch.json"))
+ALERTS = Path(os.environ.get("CCVPS_ALERTS", "/var/lib/ccbot/alerts"))
+CRON = Path(os.environ.get("CCVPS_CRON", "/var/spool/cron/crontabs/claude"))
+HOME = Path(os.environ.get("CCVPS_HOME") or "/home/claude")
+USER_UNITS = [HOME / ".config/systemd/user", HOME / ".local/share/systemd/user"]
+# Опции ssh со значением: буквы после них — уже значение, а не новые опции.
+SSH_VALUE_OPTIONS = set("BbcDEeFIiJLlmOoPpQRSWw")
+
+
+def alert(text):
+    ALERTS.mkdir(parents=True, exist_ok=True)
+    try:
+        owner = pwd.getpwnam("ccbot")
+        os.chown(ALERTS, owner.pw_uid, owner.pw_gid)
+    except (KeyError, PermissionError):
+        owner = None
+    tmp = ALERTS / f".{time.time_ns()}.tmp"
+    tmp.write_text(text, encoding="utf-8")
+    if owner:
+        os.chown(tmp, owner.pw_uid, owner.pw_gid)
+    tmp.rename(ALERTS / f"{time.time_ns()}.txt")
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def check_keys():
+    data = KEYS.read_bytes() if KEYS.exists() else b""
+    current = sha(data)
+    if not BASELINE.exists():
+        BASELINE.write_text(current + "\n", encoding="ascii")
+        return
+    if BASELINE.read_text(encoding="ascii").strip() != current:
+        alert("Изменились SSH-ключи в обход бота. Проверь список в /devices.")
+        BASELINE.write_text(current + "\n", encoding="ascii")
+
+
+def schedule_snapshot():
+    """Всё, что запустится само: cron и пользовательские службы."""
+    items = {}
+    if CRON.is_file():
+        for line in CRON.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.strip() and not line.lstrip().startswith("#"):
+                items["cron: " + line.strip()[:200]] = "1"
+    for folder in USER_UNITS:
+        if folder.is_dir():
+            for path in folder.rglob("*"):
+                if path.is_file() or path.is_symlink():
+                    try:
+                        items[f"systemd: {path.name}"] = sha(path.read_bytes())
+                    except OSError:
+                        items[f"systemd: {path.name}"] = "?"
+    return items
+
+
+def is_tunnel(argv):
+    """True для ssh с удалённым пробросом (-R, RemoteForward) и для autossh."""
+    if not argv:
+        return False
+    name = os.path.basename(argv[0])
+    if name == "autossh":
+        return True
+    if name != "ssh":
+        return False
+    hosts = 0
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        i += 1
+        if len(arg) > 1 and arg.startswith("-") and arg != "--":
+            for pos, letter in enumerate(arg[1:], 1):
+                if letter == "R":
+                    return True
+                if letter in SSH_VALUE_OPTIONS:
+                    value = arg[pos + 1:]
+                    if not value and i < len(argv):
+                        value = argv[i]
+                        i += 1
+                    if letter == "o" and value.lower().replace(" ", "").startswith("remoteforward"):
+                        return True
+                    break
+        elif arg == "--":
+            return False
+        else:
+            hosts += 1
+            if hosts > 1:
+                return False  # дальше команда для удалённого сервера
+    return False
+
+
+def tunnels():
+    found = {}
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            argv = Path(f"/proc/{entry}/cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+        except OSError:
+            continue
+        if argv and argv[-1] == "":
+            argv.pop()
+        if is_tunnel(argv):
+            found[entry] = " ".join(argv)[:300]
+    return found
+
+
+def main():
+    try:
+        state = json.loads(STATE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    check_keys()
+
+    schedule = schedule_snapshot()
+    if "schedule" in state:
+        new = [k for k, v in schedule.items() if state["schedule"].get(k) != v]
+        if new:
+            alert("Появились автозапуски пользователя claude:\n" + "\n".join(new[:10]))
+    state["schedule"] = schedule
+
+    current = tunnels()
+    known = state.get("tunnels", {})
+    for pid, command in current.items():
+        if known.get(pid) != command:
+            alert("Исходящий SSH-туннель: так работает бэкдор из поддельного расширения Claude Code.\n"
+                  f"PID {pid}: {command}")
+    state["tunnels"] = current
+
+    tmp = STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.rename(STATE)
+
+
+if __name__ == "__main__":
+    main()
