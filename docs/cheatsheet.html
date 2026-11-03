@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шпаргалка Claude</title>
+<style>
+:root { color-scheme: light dark; --bg: #fbfaf7; --ink: #23211d; --muted: #6b675f; --line: #dfdbd2; --key: #efece4; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1b1a18; --ink: #ece9e2; --muted: #a29e95; --line: #3a3833; --key: #2c2a26; } }
+body { margin: 0 auto; max-width: 52rem; padding: 2rem 1rem 4rem; background: var(--bg); color: var(--ink);
+  font: 16px/1.55 "Segoe UI", -apple-system, Roboto, sans-serif; }
+h1 { font-size: 1.7rem; margin: 0 0 .25rem; } h2 { font-size: 1.1rem; margin: 2rem 0 .6rem; }
+p.lead { color: var(--muted); margin: 0; }
+table { width: 100%; border-collapse: collapse; } td { padding: .4rem .6rem .4rem 0; border-top: 1px solid var(--line); vertical-align: top; }
+td:first-child { width: 36%; white-space: nowrap; }
+code, kbd { font: .92em Consolas, ui-monospace, monospace; background: var(--key); border-radius: 4px; padding: .1em .35em; }
+@media (max-width: 34rem) { td:first-child { white-space: normal; width: 45%; } }
+</style>
+</head>
+<body>
+<h1>Шпаргалка Claude</h1>
+<p class="lead">Разговоры и фото — Telegram. Быстро спросить — терминал. Код и просмотр — VS Code. Вход и оплата — рабочий стол.</p>
+
+<h2>Отдать файл</h2>
+<table>
+<tr><td>Telegram</td><td>Фото, файл, <kbd>Ctrl+V</kbd> со скриншотом. Больше 20 МБ — ссылкой на Google Диск, Яндекс Диск или Dropbox (до 2 ГБ).</td></tr>
+<tr><td>Папка</td><td>Кинуть в <code>C:\Claude\inbox</code> или перетащить оттуда в окно Claude.</td></tr>
+<tr><td>Файл откуда угодно</td><td>ПКМ → «Отправить» → Claude, затем <kbd>Ctrl+V</kbd> в окне Claude.</td></tr>
+<tr><td>Скриншот</td><td><kbd>Win+Shift+S</kbd>, затем <kbd>Ctrl+Alt+V</kbd> в окне Claude.</td></tr>
+<tr><td>VS Code</td><td>Перетащить файл в его проводник.</td></tr>
+</table>
+
+<h2>Получить файл</h2>
+<table>
+<tr><td>На ПК</td><td>Файл уже лежит в <code>C:\Claude\outbox</code>. <kbd>Ctrl</kbd>+клик по ссылке <code>file:///C:/Claude/outbox/…</code> в ответе открывает его.</td></tr>
+<tr><td>В Telegram</td><td>Копия приходит сама. Больше 50 МБ — только путь.</td></tr>
+<tr><td>Просмотр</td><td>В VS Code Claude открывает HTML, Markdown, картинки и PDF рядом с разговором командой <code>code файл</code>.</td></tr>
+</table>
+
+<h2>Claude Code</h2>
+<table>
+<tr><td><code>@файл</code></td><td>приложить файл к вопросу</td></tr>
+<tr><td><kbd>Esc</kbd></td><td>остановить ответ</td></tr>
+<tr><td><kbd>Esc</kbd> <kbd>Esc</kbd></td><td>вернуться назад</td></tr>
+<tr><td><kbd>Shift+Tab</kbd></td><td>режимы, в том числе «сначала план»</td></tr>
+<tr><td><code>/resume</code></td><td>прошлые разговоры</td></tr>
+<tr><td><code>/clear</code></td><td>очистить разговор</td></tr>
+<tr><td><code>/model</code></td><td>выбрать модель</td></tr>
+<tr><td><code>!команда</code></td><td>выполнить команду оболочки</td></tr>
+<tr><td><code>cc [имя]</code></td><td>Claude в отдельной задаче tmux. Закрыл окно — работает дальше, открыл — то же место</td></tr>
+<tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>ответы на вопросы о разрешениях</td></tr>
+</table>
+
+<h2>Telegram</h2>
+<table>
+<tr><td>Сообщение</td><td>вопрос. Reply на ответ бота — в тот разговор. Можно спрашивать, пока Claude отвечает</td></tr>
+<tr><td><code>/new</code></td><td>новый разговор</td></tr>
+<tr><td><code>/project</code></td><td>выбрать проект</td></tr>
+<tr><td><code>/sessions</code></td><td>продолжить разговор из терминала или VS Code</td></tr>
+<tr><td><code>/run задача</code></td><td>долгая задача</td></tr>
+<tr><td><code>/tasks</code></td><td>смотреть и останавливать задачи</td></tr>
+<tr><td><code>/devices</code></td><td>устройства</td></tr>
+<tr><td><code>/status</code></td><td>сервер, вход в Claude, «Быстро / Умно», «Мои инструкции»</td></tr>
+</table>
+
+<h2>Важно</h2>
+<table>
+<tr><td>Удаление</td><td>Файл, удалённый в <code>C:\Claude</code>, удаляется и на сервере.</td></tr>
+<tr><td>Расширения</td><td>VS Code и расширения — только из Microsoft Marketplace.</td></tr>
+<tr><td>Тревога от бота</td><td>Удали устройство в <code>/devices</code>, выйди из claude.ai во всех сеансах, смени токен из консоли хостера: <code>sudo claude-vps token</code>.</td></tr>
+</table>
+</body>
+</html>

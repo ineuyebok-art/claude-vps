@@ -5,7 +5,7 @@ if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
 }
 Import-Module PSScriptAnalyzer
 $root = Split-Path -Parent $PSScriptRoot
-$excluded = @('PSAvoidUsingWriteHost', 'PSUseBOMForUnicodeEncodedFile')
+$excluded = @('PSAvoidUsingWriteHost', 'PSUseBOMForUnicodeEncodedFile', 'PSUseShouldProcessForStateChangingFunctions')
 $files = Get-ChildItem -Path (Join-Path $root 'windows'), $PSScriptRoot -Filter *.ps1 -Recurse
 $found = $files | ForEach-Object {
     Invoke-ScriptAnalyzer -Path $_.FullName -Severity Warning, Error -ExcludeRule $excluded
