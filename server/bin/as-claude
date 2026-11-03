@@ -1,15 +1,38 @@
 #!/usr/bin/python3 -I
-"""Единственный способ бота действовать от имени claude: sudo -u claude as-claude <команда>."""
+"""Единственный способ бота действовать от имени claude: sudo -u claude as-claude <команда>.
+
+Токен и управление ботом остаются у ccbot. Здесь только то, что боту нужно от claude:
+запустить Claude, положить и взять файл, управлять задачами в tmux, прочитать статус.
+"""
+import glob
+import json
 import os
 import re
+import shutil
+import signal
+import stat
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-HOME = Path(os.environ.get("CCVPS_HOME") or Path("/home/claude"))
+HOME = Path(os.environ.get("CCVPS_HOME") or "/home/claude")
+LIB = os.environ.get("CCVPS_LIB") or "/usr/local/lib/claude-vps"
+CC = HOME / ".cc"
+SOCK = str(CC / "tmux.sock")
+STATUS = CC / "status"
+EVENTS = CC / "events"
+TMP = CC / "tmp"
+INBOX = HOME / "inbox"
+OUTBOX = HOME / "outbox"
 CLAUDE_MD = HOME / ".claude" / "CLAUDE.md"
 SYS_START, SYS_END = "<!-- claude-vps:system:start -->", "<!-- claude-vps:system:end -->"
 USER_START, USER_END = "<!-- claude-vps:user:start -->", "<!-- claude-vps:user:end -->"
+TASK_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+KEYS = {"1": "1", "2": "2", "3": "3", "enter": "Enter", "esc": "Escape"}
+NOISE = (".mutagen", "~$", ".~")
+NOISE_SUFFIX = (".part", ".crdownload", ".tmp")
 
 
 def fail(msg, code=2):
@@ -17,65 +40,422 @@ def fail(msg, code=2):
     sys.exit(code)
 
 
-def atomic_write(path, text):
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False), flush=True)
+
+
+def atomic_write(path, text, mode=0o644):
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
-    os.chmod(tmp, 0o644)
+    os.chmod(tmp, mode)
     os.rename(tmp, path)
 
 
+def claude_bin():
+    return os.environ.get("CCVPS_CLAUDE_BIN") or str(HOME / ".local" / "bin" / "claude")
+
+
+def child_env():
+    env = dict(os.environ)
+    env.update(HOME=str(HOME), LANG="C.UTF-8",
+               PATH=f"/usr/local/bin:/usr/bin:/bin:{HOME}/.local/bin")
+    return env
+
+
+# ------------------------------------------------------------- CLAUDE.md ---
 def md_parts():
     """Разбирает CLAUDE.md на системную часть, «Мои инструкции» и всё остальное."""
     text = CLAUDE_MD.read_text(encoding="utf-8") if CLAUDE_MD.exists() else ""
     sys_re = re.compile(re.escape(SYS_START) + r".*?" + re.escape(SYS_END), re.S)
     user_re = re.compile(re.escape(USER_START) + r"(.*?)" + re.escape(USER_END), re.S)
-    m = user_re.search(text)
-    user = m.group(1).strip() if m else ""
+    match = user_re.search(text)
+    user = match.group(1).strip() if match else ""
     rest = user_re.sub("", sys_re.sub("", text))
     rest = re.sub(r"^## Мои инструкции\s*$", "", rest, flags=re.M).strip()
-    system = ""
-    m = sys_re.search(text)
-    if m:
-        system = m.group(0)
-    return system, user, rest
+    match = sys_re.search(text)
+    return (match.group(0) if match else ""), user, rest
 
 
 def md_join(system, user, rest):
-    parts = [system, "## Мои инструкции\n" + USER_START + "\n" + user + "\n" + USER_END]
-    if rest:
-        parts.append(rest)
+    parts = [system, f"## Мои инструкции\n{USER_START}\n{user}\n{USER_END}", rest]
     return "\n\n".join(p for p in parts if p) + "\n"
 
 
-def claude_md_system():
+def claude_md_system(_args):
     body = sys.stdin.read().strip()
     _, user, rest = md_parts()
     atomic_write(CLAUDE_MD, md_join(f"{SYS_START}\n{body}\n{SYS_END}", user, rest))
 
 
-def instructions_get():
+def instructions_get(_args):
     print(md_parts()[1])
 
 
-def instructions_set():
+def instructions_set(_args):
     system, _, rest = md_parts()
     atomic_write(CLAUDE_MD, md_join(system, sys.stdin.read().strip(), rest))
 
 
+# ---------------------------------------------------------------- Claude ---
+def inside_home(path):
+    real = os.path.realpath(path)
+    allowed = (str(HOME / "chat"), str(HOME / "projects"))
+    if not any(real == a or real.startswith(a + os.sep) for a in allowed):
+        fail("Папка вне ~/chat и ~/projects: " + path)
+    if not os.path.isdir(real):
+        fail("Нет папки: " + path)
+    return real
+
+
+def run_claude(args):
+    cwd = inside_home(args[0])
+    os.chdir(cwd)
+    if "--dangerously-skip-permissions" in args:
+        fail("Этот режим запрещён")
+    binary = claude_bin()
+    os.execve(binary, [binary] + args[1:], child_env())
+
+
+def auth_status(_args):
+    result = {"loggedIn": False}
+    try:
+        res = subprocess.run([claude_bin(), "auth", "status", "--json"], capture_output=True,
+                             text=True, timeout=30, env=child_env(), check=False)
+        result.update(json.loads(res.stdout))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    try:
+        conf = json.loads((HOME / ".claude.json").read_text(encoding="utf-8"))
+        account = conf.get("oauthAccount") or {}
+        result.setdefault("orgId", account.get("organizationUuid"))
+        result.setdefault("email", account.get("emailAddress"))
+    except (OSError, ValueError):
+        pass
+    out({k: result.get(k) for k in ("loggedIn", "orgId", "email", "subscriptionType")})
+
+
+def list_projects(_args):
+    base = HOME / "projects"
+    names = sorted(p.name for p in base.iterdir()
+                   if p.is_dir() and not p.is_symlink() and not p.name.startswith("."))
+    out(names)
+
+
+def first_user_text(entry):
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return re.sub(r"\s+", " ", content or "").strip()
+
+
+def sessions(args):
+    limit = int(args[0]) if args else 10
+    files = glob.glob(str(HOME / ".claude" / "projects" / "*" / "*.jsonl"))
+    files.sort(key=os.path.getmtime, reverse=True)
+    found = []
+    for path in files[:limit * 4]:
+        item = {"id": Path(path).stem, "mtime": int(os.path.getmtime(path)),
+                "cwd": "", "title": "", "source": "terminal"}
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for _, line in zip(range(300), f):
+                    entry = json.loads(line)
+                    if entry.get("type") != "user" or entry.get("isSidechain") or entry.get("isMeta"):
+                        continue
+                    text = first_user_text(entry)
+                    if not text or text.startswith("<"):
+                        continue
+                    item["cwd"] = entry.get("cwd", "")
+                    item["title"] = text[:70]
+                    if entry.get("promptSource") == "sdk":
+                        item["source"] = "telegram"
+                    break
+        except (OSError, ValueError):
+            continue
+        if item["title"]:
+            found.append(item)
+        if len(found) >= limit:
+            break
+    out(found)
+
+
+# ----------------------------------------------------------------- файлы ---
+def write_inbox(args):
+    """Принимает файл на stdin. Имя уже очищено ботом; здесь только защита от перезаписи."""
+    name = os.path.basename(args[0])
+    if not name or name.startswith("."):
+        fail("Плохое имя файла")
+    TMP.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=TMP)
+    with os.fdopen(fd, "wb") as f:
+        shutil.copyfileobj(sys.stdin.buffer, f, 1024 * 1024)
+    os.chmod(tmp, 0o644)  # входящие файлы не исполняются
+    stem, suffix = os.path.splitext(name)
+    target = INBOX / name
+    number = 1
+    while True:
+        try:
+            os.link(tmp, target)
+            break
+        except FileExistsError:
+            target = INBOX / f"{stem}-{number}{suffix}"
+            number += 1
+    os.unlink(tmp)
+    print(target)
+
+
+def read_outbox(args):
+    """Отдаёт файл из ~/outbox. Символические ссылки не читаем: они могли бы вести куда угодно."""
+    root = os.path.realpath(OUTBOX)
+    path = os.path.join(root, args[0])
+    if not os.path.realpath(path).startswith(root + os.sep):
+        fail("Файл вне outbox")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            fail("Это не файл")
+        shutil.copyfileobj(f, sys.stdout.buffer, 1024 * 1024)
+
+
+def scan_outbox():
+    found = {}
+    for root, dirs, files in os.walk(OUTBOX):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            if name.startswith(".") or name.startswith(NOISE) or name.lower() == "desktop.ini" \
+                    or name.endswith(NOISE_SUFFIX):
+                continue
+            path = os.path.join(root, name)
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            if stat.S_ISREG(st.st_mode):
+                found[os.path.relpath(path, OUTBOX)] = [st.st_size, int(st.st_mtime)]
+    return found
+
+
+def watch(_args):
+    """Постоянный поток событий для бота: хуки задач и новые файлы в outbox."""
+    seen_path = CC / "outbox-seen.json"
+    try:
+        seen = json.loads(seen_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        seen = scan_outbox()  # первый запуск: старые файлы не рассылаем
+        atomic_write(seen_path, json.dumps(seen), 0o600)
+    previous = {}
+    interval = float(os.environ.get("CCVPS_WATCH_INTERVAL") or 1)
+    while True:
+        EVENTS.mkdir(parents=True, exist_ok=True)
+        for path in sorted(EVENTS.glob("*.json")):
+            try:
+                event = json.loads(path.read_text(encoding="utf-8"))
+                event["type"] = "hook"
+                out(event)
+            except (OSError, ValueError):
+                pass
+            path.unlink(missing_ok=True)
+        current = scan_outbox()
+        dirty = False
+        for rel, meta in current.items():
+            # Шлём, когда файл перестал расти между двумя проверками.
+            if seen.get(rel) != meta and previous.get(rel) == meta:
+                seen[rel] = meta
+                dirty = True
+                out({"type": "outbox", "path": rel, "size": meta[0]})
+        for rel in [r for r in seen if r not in current]:
+            del seen[rel]
+            dirty = True
+        previous = current
+        if dirty:
+            atomic_write(seen_path, json.dumps(seen), 0o600)
+        time.sleep(interval)
+
+
+# ---------------------------------------------------------------- задачи ---
+def tmux(*args, check=False, data=None):
+    res = subprocess.run(["tmux", "-u", "-S", SOCK, *args], capture_output=True, text=True,
+                         input=data, env=child_env(), check=False)
+    if check and res.returncode != 0:
+        fail(res.stderr.strip() or "ошибка tmux")
+    return res
+
+
+def need_task(name):
+    if not TASK_RE.match(name):
+        fail("Плохое имя задачи")
+    return name
+
+
+def has_task(name):
+    return tmux("has-session", "-t", f"={name}").returncode == 0
+
+
+def read_status(name):
+    try:
+        return json.loads((STATUS / f"{name}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def write_status(name, **fields):
+    data = read_status(name)
+    data.update(fields, ts=int(time.time()))
+    atomic_write(STATUS / f"{name}.json", json.dumps(data, ensure_ascii=False), 0o600)
+
+
+def task_start(args):
+    name, cwd, model = need_task(args[0]), inside_home(args[1]), args[2]
+    if has_task(name):
+        fail("Задача уже идёт: " + name)
+    prompt = sys.stdin.read()
+    prompt_file = CC / "prompts" / f"{name}.txt"
+    atomic_write(prompt_file, prompt, 0o600)
+    write_status(name, state="working", cwd=cwd, title=prompt[:80], session_id="")
+    tmux("new-session", "-d", "-s", name, "-c", cwd, "-x", "200", "-y", "50",
+         "-e", f"CC_TASK={name}", f"{LIB}/cc-run", "--prompt-file", str(prompt_file),
+         "--model", model, check=True)
+
+
+def task_resume(args):
+    name = need_task(args[0])
+    status = read_status(name)
+    if has_task(name):
+        fail("Задача уже идёт: " + name)
+    command = [f"{LIB}/cc-run"]
+    if status.get("session_id"):
+        command += ["--resume", status["session_id"]]
+    write_status(name, state="working")
+    tmux("new-session", "-d", "-s", name, "-c", inside_home(status.get("cwd") or str(HOME / "chat")),
+         "-x", "200", "-y", "50", "-e", f"CC_TASK={name}", *command, check=True)
+
+
+def task_list(_args):
+    res = tmux("list-sessions", "-F", "#{session_name}\t#{pane_current_path}")
+    alive = {}
+    for line in res.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 2:
+            alive[parts[0]] = parts[1]
+    result = []
+    STATUS.mkdir(parents=True, exist_ok=True)
+    for name in sorted(set(alive) | {p.stem for p in STATUS.glob("*.json")}):
+        status = read_status(name)
+        state = status.get("state", "idle")
+        if name not in alive:
+            if state in ("working", "waiting"):
+                state = "interrupted"  # сервер или tmux перезапускались
+            else:
+                (STATUS / f"{name}.json").unlink(missing_ok=True)
+                continue
+        result.append({"name": name, "state": state, "cwd": status.get("cwd") or alive.get(name, ""),
+                       "title": status.get("title", ""), "session_id": status.get("session_id", ""),
+                       "ts": status.get("ts", 0)})
+    out(result)
+
+
+def task_screen(args):
+    name = need_task(args[0])
+    res = tmux("capture-pane", "-p", "-J", "-t", f"={name}:", "-S", "-200")
+    if res.returncode != 0:
+        fail("Задачи нет")
+    lines = [ln.rstrip() for ln in res.stdout.splitlines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    print("\n".join(lines[-60:]))
+
+
+def task_keys(args):
+    name, key = need_task(args[0]), KEYS.get(args[1])
+    if not key:
+        fail("Неизвестная клавиша")
+    tmux("send-keys", "-t", f"={name}:", key, check=True)
+
+
+def task_text(args):
+    name = need_task(args[0])
+    text = sys.stdin.read()
+    buffer = f"cc-{os.getpid()}"
+    tmux("load-buffer", "-b", buffer, "-", data=text, check=True)
+    tmux("paste-buffer", "-p", "-d", "-b", buffer, "-t", f"={name}:", check=True)
+    time.sleep(0.3)
+    tmux("send-keys", "-t", f"={name}:", "Enter", check=True)
+    write_status(name, state="working")
+
+
+def proc_table():
+    table = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                with open(f"/proc/{entry}/stat", encoding="ascii", errors="replace") as f:
+                    fields = f.read().rsplit(")", 1)[1].split()
+                table[int(entry)] = int(fields[1])
+            except (OSError, IndexError, ValueError):
+                pass
+    return table
+
+
+def task_processes(name):
+    """Все процессы задачи: дерево от окна tmux плюс всё, что унаследовало метку CC_TASK."""
+    res = tmux("list-panes", "-s", "-t", f"={name}", "-F", "#{pane_pid}")
+    roots = {int(p) for p in res.stdout.split() if p.isdigit()}
+    table = proc_table()
+    found = set()
+    frontier = set(roots)
+    while frontier:
+        found |= frontier
+        frontier = {pid for pid, parent in table.items() if parent in frontier} - found
+    marker = f"CC_TASK={name}".encode()
+    for pid in table:
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                if marker in f.read().split(b"\0"):
+                    found.add(pid)
+        except OSError:
+            pass
+    found.discard(os.getpid())
+    return found
+
+
+def task_stop(args):
+    name = need_task(args[0])
+    pids = task_processes(name)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    tmux("kill-session", "-t", f"={name}")
+    deadline = time.time() + 2
+    while time.time() < deadline and any(os.path.exists(f"/proc/{p}") for p in pids):
+        time.sleep(0.1)
+    for pid in task_processes(name) | pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    (STATUS / f"{name}.json").unlink(missing_ok=True)
+
+
 COMMANDS = {
-    "claude-md-system": claude_md_system,
-    "instructions-get": instructions_get,
-    "instructions-set": instructions_set,
+    "claude-md-system": claude_md_system, "instructions-get": instructions_get,
+    "instructions-set": instructions_set, "claude": run_claude, "auth-status": auth_status,
+    "list-projects": list_projects, "sessions": sessions, "write-inbox": write_inbox,
+    "read-outbox": read_outbox, "watch": watch, "task-start": task_start,
+    "task-resume": task_resume, "task-list": task_list, "task-screen": task_screen,
+    "task-keys": task_keys, "task-text": task_text, "task-stop": task_stop,
 }
 
 
 def main():
-    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd not in COMMANDS:
-        fail("Неизвестная команда: " + cmd)
-    COMMANDS[cmd]()
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
+    if command not in COMMANDS:
+        fail("Неизвестная команда: " + command)
+    os.chdir(HOME)
+    COMMANDS[command](sys.argv[2:])
 
 
 if __name__ == "__main__":

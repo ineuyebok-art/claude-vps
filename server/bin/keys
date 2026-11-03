@@ -93,9 +93,10 @@ def main():
         write_keys(kept)
         # Открытые соединения по удалённому ключу иначе остались бы жить.
         # Остальные устройства переподключатся сами.
-        subprocess.run(["pkill", "-KILL", "-u", "claude", "-f", "^sshd(-session)?: claude"],
-                       check=False)
-        subprocess.run(["pkill", "-KILL", "-u", "claude", "-x", "mutagen-agent"], check=False)
+        if not os.environ.get("CCVPS_NO_PKILL"):
+            subprocess.run(["pkill", "-KILL", "-u", "claude", "-f", "^sshd(-session)?: claude"],
+                           check=False)
+            subprocess.run(["pkill", "-KILL", "-u", "claude", "-x", "mutagen-agent"], check=False)
     else:
         fail(__doc__)
 

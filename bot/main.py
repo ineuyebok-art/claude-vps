@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Точка входа бота."""
-import time
+from ccbot.app import create
 
-while True:
-    time.sleep(60)
+if __name__ == "__main__":
+    create().run_forever()

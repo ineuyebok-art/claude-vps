@@ -11,7 +11,7 @@ t() { tmux -S "$SOCK" "$@"; }
 if ! t has-session -t "=$name" 2>/dev/null; then
   dir="$PWD"
   [[ "$dir" != "$HOME" ]] || dir="$HOME/chat"
-  t new-session -d -s "$name" -c "$dir" -x 200 -y 50 /usr/local/lib/claude-vps/cc-run
+  t new-session -d -s "$name" -c "$dir" -x 200 -y 50 -e "CC_TASK=$name" "${CCVPS_LIB:-/usr/local/lib/claude-vps}/cc-run"
 fi
 if [[ -n "${TMUX:-}" ]]; then
   exec tmux -S "$SOCK" switch-client -t "=$name"

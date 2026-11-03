@@ -1,5 +1,99 @@
 #!/usr/bin/python3 -I
-"""Хук Claude Code. Пока заглушка: подробности появятся на шаге задач."""
+"""Хук Claude Code: состояние задач tmux и уведомления для бота. Аргумент — имя события."""
+import json
+import os
+import re
+import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 
-sys.stdin.read()
+HOME = Path(os.environ.get("CCVPS_HOME") or "/home/claude")
+STATUS = HOME / ".cc" / "status"
+EVENTS = HOME / ".cc" / "events"
+
+
+def task_name():
+    name = os.environ.get("CC_TASK", "")
+    if name:
+        return name
+    if not os.environ.get("TMUX"):
+        return ""  # разговоры бота идут без tmux и уведомлений не дают
+    try:
+        res = subprocess.run(["tmux", "display-message", "-p", "#S"], capture_output=True,
+                             text=True, timeout=5, check=False)
+        return res.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def atomic(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.chmod(tmp, 0o600)
+    os.rename(tmp, path)
+
+
+def last_answer(transcript):
+    """Начало последнего ответа Claude из файла разговора."""
+    try:
+        with open(transcript, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 400_000))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except (OSError, TypeError):
+        return ""
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") != "assistant":
+            continue
+        content = (entry.get("message") or {}).get("content") or []
+        text = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            return text[:300]
+    return ""
+
+
+def main():
+    event = sys.argv[1] if len(sys.argv) > 1 else ""
+    try:
+        data = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        data = {}
+    name = task_name()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name):
+        return
+    status_path = STATUS / f"{name}.json"
+    try:
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        status = {}
+    previous = status.get("state")
+    state = {"Stop": "done", "Notification": "waiting"}.get(event, "working")
+    message = str(data.get("message") or "")
+    # Claude просто ждёт следующего вопроса: о конце работы уже сообщил Stop.
+    if event == "Notification" and previous == "done" and "waiting for your input" in message:
+        return
+    status.update(state=state, ts=int(time.time()), session_id=data.get("session_id") or status.get("session_id", ""),
+                  cwd=data.get("cwd") or status.get("cwd", ""))
+    if event == "UserPromptSubmit" and data.get("prompt"):
+        status["title"] = str(data["prompt"])[:80]
+    atomic(status_path, status)
+    if event in ("Stop", "Notification"):
+        atomic(EVENTS / f"{time.time_ns()}.json",
+               {"event": event, "task": name, "session_id": status["session_id"],
+                "cwd": status["cwd"], "message": message[:300],
+                "answer": last_answer(data.get("transcript_path"))})
+
+
+try:
+    main()
+except OSError:
+    pass  # хук никогда не мешает Claude
