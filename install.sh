@@ -500,7 +500,8 @@ summary() {
   printf '  Сервер:     %s, страна: %s\n' "${SERVER_IP:-не определён}" "${SERVER_COUNTRY:-не определена}"
   printf '  Версия:     %s\n' "${COMMIT:0:12}"
   if [[ -n "$BIND_CODE" ]]; then
-    printf '  Бот:        открой @%s и отправь код: \033[1m%s\033[0m\n' "${bot_name:-твой_бот}" "$BIND_CODE"
+    printf '  Бот:        открой \033[1mhttps://t.me/%s?start=%s\033[0m и нажми «Запустить»\n' \
+      "${bot_name:-твой_бот}" "$BIND_CODE"
   else
     printf '  Бот:        уже привязан, @%s\n' "${bot_name:-твой_бот}"
   fi

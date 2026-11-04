@@ -88,6 +88,7 @@ class Devices(BotCase):
         text = self.wait_text("Второй Telegram")
         code = text.split("<code>")[1].split("</code>")[0]
         self.assertIn("15 минут", text)
+        self.assertIn(f"https://t.me/test_bot?start={code}", text)
         self.message(user=SECOND, text=code)
         self.wait(lambda: self.state.account(SECOND), what="binding")
         self.message(user=STRANGER, text=code)

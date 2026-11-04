@@ -16,6 +16,7 @@ out="$(docker exec "${base[@]}" "$NAME" bash -c '
   (sleep 4; echo 123:BADTOKENBADTOKENBADTOKENBADTOKENBADTOKEN; sleep 2; echo 123:GOODTOKENGOODTOKENGOODTOKENGOODTOKEN) |
     script -qec "cat /src/install.sh | bash" /dev/null' 2>&1)"
 if grep -q 'не принял этот токен' <<<"$out"; then ok "wrong token is asked again"; else bad "wrong token is asked again"; fi
+if grep -q 'https://t.me/test_bot?start=' <<<"$out"; then ok "summary has a one-tap bot link"; else bad "bot link in summary"; fi
 if grep -q 'Готово' <<<"$out"; then ok "install completes through curl | bash"; else bad "install completes: $(tail -3 <<<"$out")"; fi
 if docker exec "$NAME" grep -q GOODTOKEN /var/lib/ccbot/token; then ok "token typed at the terminal is saved"; else bad "token is saved"; fi
 if grep -q GOODTOKEN <<<"$out"; then bad "token is not echoed"; else ok "token is not echoed"; fi

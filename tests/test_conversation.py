@@ -18,6 +18,11 @@ class Binding(BotCase):
         self.wait_text("привязан")
         self.assertIsNone(self.state.account(SECOND))
 
+    def test_start_link_binds(self):
+        (self.bot_home / "bind-code").write_text("SECRET1234", encoding="utf-8")
+        self.message(text="/start SECRET1234")
+        self.wait(lambda: self.state.account(OWNER), what="binding")
+
     def test_stranger_is_ignored_silently(self):
         (self.bot_home / "bind-code").write_text("SECRET1234", encoding="utf-8")
         for text in ("привет", "/status", "/devices", "wrong-code"):

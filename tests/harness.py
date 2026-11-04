@@ -112,6 +112,8 @@ class FakeTelegram:
                     return 400, {"ok": False, "description": "Bad Request: message is not modified"}
                 entry.update(params)
                 return 200, {"ok": True, "result": {"message_id": params["message_id"]}}
+            if method == "getMe":
+                return 200, {"ok": True, "result": {"username": "test_bot"}}
             if method == "getFile":
                 return 200, {"ok": True, "result": {"file_path": params["file_id"]}}
             return 200, {"ok": True, "result": True}

@@ -764,12 +764,16 @@ class Bot:
         return texts.ADD_PC_LINE.format(raw=config.REPO_RAW, commit=config.commit(),
                                         ip=ip or "IP_СЕРВЕРА", host_key=" ".join(parts[:2]))
 
+    def bind_link(self, code):
+        name = self.tg.call("getMe").get("username", "")
+        return esc(f"https://t.me/{name}?start={code}")
+
     def btn_dv(self, _user_id, chat_id, _message, rest):
         if rest == "pc":
             self.tg.send_html(chat_id, texts.ADD_PC.format(line=esc(self.add_pc_line())))
         elif rest == "tg":
             code = self.state.new_code(config.CODE_TTL)
-            self.tg.send_html(chat_id, texts.ADD_TELEGRAM.format(code=code))
+            self.tg.send_html(chat_id, texts.ADD_TELEGRAM.format(code=code, link=self.bind_link(code)))
         elif rest == "vnc":
             ip, _ = self.server_ip()
             self.tg.send_html(chat_id, texts.PHONE_VNC.format(ip=esc(ip or "IP_СЕРВЕРА")))
