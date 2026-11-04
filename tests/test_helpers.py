@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -125,6 +126,24 @@ class CodeWrapper(Base):
     def test_never_connected_explains(self):
         shutil.rmtree(self.home / ".vscode-server")
         self.assertIn("ещё не подключался", self.code().stderr)
+
+
+class Browser(Base):
+    def test_link_goes_to_the_server_desktop(self):
+        log = self.home / "chromium.log"
+        tool = self.home / "chromium"
+        tool.write_text(f'#!/bin/sh\necho "$DISPLAY $*" > {log}\n', encoding="utf-8")
+        tool.chmod(0o755)
+        self.env["PATH"] = f"{self.home}:{self.env['PATH']}"
+        res = subprocess.run([str(ROOT / "server/bin/open-on-desktop"), "https://claude.ai/x"], capture_output=True,
+                             text=True, env=self.env, check=False)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("рабочий стол", res.stderr)
+        for _ in range(100):
+            if log.exists():
+                break
+            time.sleep(0.01)
+        self.assertRegex(log.read_text(encoding="utf-8"), r"^:1 .*https://claude\.ai/x")
 
 
 class Claude(Base):

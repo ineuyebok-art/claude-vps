@@ -59,7 +59,7 @@ def claude_bin():
 
 def child_env():
     env = dict(os.environ)
-    env.update(HOME=str(HOME), LANG="C.UTF-8",
+    env.update(HOME=str(HOME), LANG="C.UTF-8", BROWSER=f"{LIB}/open-on-desktop",
                PATH=f"/usr/local/bin:/usr/bin:/bin:{HOME}/.local/bin")
     return env
 

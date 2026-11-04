@@ -1,8 +1,10 @@
 """Watchdog: keys, schedules, tunnels."""
+import base64
 import importlib.machinery
 import importlib.util
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -75,8 +77,6 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(len(self.alert_texts()), 1)
 
     def test_key_added_by_helper_is_quiet(self):
-        import base64
-        import struct
         name = b"ssh-ed25519"
         blob = base64.b64encode(struct.pack(">I", len(name)) + name + struct.pack(">I", 32) + os.urandom(32)).decode()
         subprocess.run([sys.executable, str(ROOT / "server/bin/keys"), "add", "ssh-ed25519", blob, "pc"],

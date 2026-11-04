@@ -215,6 +215,14 @@ class Bot:
         if not account:
             self.try_bind(message)  # чужим аккаунтам бот не отвечает вообще
             return
+        try:
+            self.handle_message(user_id, chat_id, messages)
+        except (helper.HelperError, TelegramError, OSError, subprocess.SubprocessError) as exc:
+            log.warning("message: %s", type(exc).__name__)
+            self.tg.send_html(chat_id, f"Не получилось: {esc(exc)}")
+
+    def handle_message(self, user_id, chat_id, messages):
+        message = messages[0]
         text = (message.get("text") or "").strip()
         if text.startswith("/"):
             command, _, rest = text[1:].partition(" ")
@@ -285,7 +293,12 @@ class Bot:
         placeholder = self.tg.send_html(chat_id, "<i>Думаю…</i>", reply_parameters=self.reply_to(messages[0]))
         stream = Stream(self, chat_id, placeholder["message_id"])
         text = self.collect_text(messages)
-        paths = self.save_attachments(messages, notices)
+        try:
+            paths = self.save_attachments(messages, notices)
+        except (OSError, TelegramError, helper.HelperError) as exc:
+            log.warning("attachment: %s", type(exc).__name__)
+            stream.fail("Не удалось получить файл. Пришли его ещё раз.")
+            return
         allowed, foreign = files.find_links(text)
         for url in allowed:
             stream.status("Скачиваю файл…")
@@ -372,6 +385,8 @@ class Bot:
         (answers / f"{answer}.md").write_text(run.text, encoding="utf-8")
         for old in sorted(answers.iterdir(), key=lambda p: p.stat().st_mtime)[:-500]:
             old.unlink(missing_ok=True)
+        if run.error:
+            stream.text += f"\n\n*Ответ оборвался: {run.error[:300]}*"
         stream.flush(keyboard((button("Короче", f"a:short:{answer}"), button("Подробнее", f"a:long:{answer}")),
                               (button("Файлом", f"a:file:{answer}"), button("Красиво", f"a:html:{answer}"))))
         session = run.result_session or run.session
@@ -422,7 +437,11 @@ class Bot:
         handler = getattr(self, "btn_" + kind, None)
         note = None
         if handler:
-            note = handler(user_id, chat_id, message, rest)
+            try:
+                note = handler(user_id, chat_id, message, rest)
+            except (helper.HelperError, TelegramError, OSError) as exc:
+                log.warning("button: %s", type(exc).__name__)
+                note = f"Не получилось: {str(exc)[:150]}"
         self.tg.call("answerCallbackQuery", callback_query_id=callback["id"], text=note)
 
     def btn_p(self, user_id, _chat_id, _message, rest):
@@ -516,6 +535,9 @@ class Bot:
         if not rest:
             self.tg.send(chat_id, "Напиши задачу после команды: /run собери проект и прогони тесты")
             return
+        if not helper.data(["auth-status"]).get("loggedIn"):
+            self.tg.send_html(chat_id, texts.NOT_LOGGED_IN)  # иначе задача молча ждала бы входа
+            return
         account = self.state.account(user_id)
         cwd = self.default_cwd(account)
         tasks = helper.data(["task-list"])
@@ -563,7 +585,7 @@ class Bot:
             return
         lines, rows = [], []
         for task in tasks:
-            label = texts.STATES.get(task["state"], task["state"])
+            label = esc(texts.STATES.get(task["state"], task["state"]))
             lines.append(f"<b>{esc(task['name'])}</b>: {label}\n{esc(task['title'][:80])}".rstrip())
             if task["state"] == "interrupted":
                 rows.append([button(f"Продолжить {task['name']}", f"r:{task['name']}")])

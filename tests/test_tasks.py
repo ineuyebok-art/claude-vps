@@ -54,6 +54,18 @@ class Run(TaskCase):
         path = self.tmux("display-message", "-p", "-t", f"={name}:", "#{pane_current_path}").stdout.strip()
         self.assertEqual(os.path.realpath(path), os.path.realpath(self.home / "chat"))
 
+    def test_not_logged_in_refuses_instead_of_hanging(self):
+        real = ROOT / "tests/stubs/claude-stub.py"
+        link = self.home / ".local/bin/claude"
+        link.unlink()
+        link.write_text(f'#!/bin/sh\n[ "$1" = auth ] && echo \'{{"loggedIn": false}}\' && exit 1\nexec {real} "$@"\n',
+                        encoding="utf-8")
+        link.chmod(0o755)
+        os.environ["CCVPS_CLAUDE_BIN"] = str(link)
+        self.message(text="/run задача")
+        self.wait_text("ещё не вошёл")
+        self.assertEqual(self.task_names(), [])
+
     def test_run_without_text_explains(self):
         self.message(text="/run")
         self.wait_text("Напиши задачу")

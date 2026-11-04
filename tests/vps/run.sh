@@ -41,6 +41,8 @@ echo "=== real ssh logins"
 bash tests/vps/ssh-check.sh "$NAME" "$IP"
 echo "=== mutagen over ssh"
 bash tests/vps/mutagen-check.sh "$NAME" "$IP"
+echo "=== real address of the PC"
+bash tests/vps/ip-check.sh "$NAME" "$IP"
 echo "=== real bot behind sudo"
 docker exec "$NAME" python3 /src/tests/vps/bot-e2e.py
 echo "=== reboot"

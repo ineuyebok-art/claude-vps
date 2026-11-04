@@ -1,5 +1,5 @@
 import io
-import json
+import time
 import unittest
 from email.message import Message
 from unittest import mock
@@ -25,7 +25,6 @@ class Binding(BotCase):
         self.fake.push("callback_query", {"id": "x", "from": {"id": STRANGER}, "data": "dv:tg",
                                           "message": {"message_id": 1, "chat": {"id": STRANGER}}})
         self.bot.poll_once(0)
-        import time
         time.sleep(0.3)
         self.assertEqual(self.fake.sent("sendMessage"), [])
         self.assertEqual(self.calls(), [])
@@ -33,14 +32,12 @@ class Binding(BotCase):
     def test_group_chat_is_ignored(self):
         self.bind(OWNER)
         self.message(text="вопрос", chat={"id": -5, "type": "group"})
-        import time
         time.sleep(0.2)
         self.assertEqual(self.calls(), [])
 
     def test_expired_code_refused(self):
         code = self.state.new_code(-1)
         self.message(user=SECOND, text=code)
-        import time
         time.sleep(0.2)
         self.assertIsNone(self.state.account(SECOND))
 
@@ -86,7 +83,6 @@ class Conversation(BotCase):
         with self.fake.lock:
             self.fake.updates.append(update)
         self.bot.poll_once(0)
-        import time
         time.sleep(0.3)
         self.assertEqual(len(self.calls()), 1)
 
@@ -170,6 +166,14 @@ class Conversation(BotCase):
         self.message(text="ВХОД")
         self.wait_text("ещё не вошёл")
 
+    def test_broken_answer_is_marked(self):
+        self.message(text="ОБРЫВ")
+        self.wait_text("Ответ оборвался")
+
+    def test_lost_file_does_not_leave_think_message(self):
+        self.message(document={"file_id": "nofile", "file_unique_id": "u", "file_name": "a.txt"})
+        self.wait_text("Не удалось получить файл")
+
     def test_shorter_button_continues_conversation(self):
         self.message(text="вопрос")
         self.wait(lambda: self.button_data("Короче"), what="buttons")
@@ -201,9 +205,6 @@ class Attachments(BotCase):
     def setUp(self):
         super().setUp()
         self.bind(OWNER)
-
-    def prompt(self, index=0):
-        return json.loads((self.stub / "last_prompt").read_text()) if False else self.fake.texts()
 
     def test_photo_is_saved_to_inbox_and_passed(self):
         self.fake.files["big"] = b"JPEGDATA"
@@ -248,7 +249,6 @@ class Attachments(BotCase):
         self.message(caption="сравни", media_group_id="g1", photo=[{"file_id": "a", "file_unique_id": "aaaaaa"}])
         self.message(media_group_id="g1", photo=[{"file_id": "b", "file_unique_id": "bbbbbb"}])
         self.wait_text("Ответ 1:")
-        import time
         time.sleep(0.3)
         self.assertEqual(len(self.calls()), 1)
         self.assertEqual(len(list((self.home / "inbox").iterdir())), 2)
@@ -316,7 +316,6 @@ class Permissions(BotCase):
     def test_other_account_cannot_answer(self):
         self.ask()
         self.press(self.button_data("Разрешить"), user=SECOND)
-        import time
         time.sleep(0.3)
         self.assertFalse(any("сделал" in t for t in self.fake.texts()))
         self.press(self.button_data("Нет"))

@@ -47,7 +47,8 @@ refuse "ccbot cannot run shell as claude" sudo -u ccbot sudo -n -u claude bash -
 echo "-- ssh config"
 d="$(sshd -T -C user=claude)"
 for want in "passwordauthentication no" "permitrootlogin no" "kbdinteractiveauthentication no" \
-  "allowusers claude" "allowagentforwarding no" "allowtcpforwarding local" "port 22"; do
+  "allowusers claude" "allowagentforwarding no" "allowtcpforwarding local" "allowstreamlocalforwarding local" \
+  "permituserrc no" "printlastlog no" "maxauthtries 3" "port 22"; do
   if grep -qi "^$want\$" <<<"$d"; then ok "sshd: $want"; else bad "sshd: $want"; fi
 done
 
@@ -64,6 +65,12 @@ check "CLAUDE.md has system part" grep -q 'claude-vps:system:start' /home/claude
 check "CLAUDE.md describes outbox" grep -q 'file:///C:/Claude/outbox' /home/claude/.claude/CLAUDE.md
 check "settings has Stop hook" bash -c 'jq -e ".hooks.Stop" /home/claude/.claude/settings.json'
 check "Claude Code installed" test -x /home/claude/.local/bin/claude
+check "no Claude extension for VS Code" jq -e '.autoInstallIdeExtension == false and .env.CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL == "1"' /home/claude/.claude/settings.json
+check "credentials are denied to Read" jq -e '.permissions.deny | index("Read(~/.claude/.credentials.json)")' /home/claude/.claude/settings.json
+check "chat and projects are trusted" jq -e '.projects["/home/claude/chat"].hasTrustDialogAccepted and .projects["/home/claude/projects"].hasTrustDialogAccepted' /home/claude/.claude.json
+check ".claude.json is private" bash -c '[ "$(stat -c "%a %U" /home/claude/.claude.json)" = "600 claude" ]'
+check "bashrc block appears once" bash -c '[ "$(grep -c "claude-vps start" /home/claude/.bashrc)" = 1 ]'
+check "only bot and server are on disk" bash -c '[ "$(ls /opt/claude-vps | tr "\n" " ")" = "bot server " ]'
 check "auto-upgrades on" grep -q 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades
 check "second run kept sudo password" cmp /etc/claude-vps/sudo-password /tmp/pw1
 check "claude-vps info works" bash -c 'claude-vps info | grep -q "Пароль sudo"'

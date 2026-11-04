@@ -31,7 +31,9 @@ token() {
   IFS= read -rs new </dev/tty
   printf '\n' >/dev/tty
   new="${new//[[:space:]]/}"
-  curl -fsS --max-time 20 "$TG_API/bot$new/getMe" 2>/dev/null | grep -Eq '"ok": *true' ||
+  # Токен через stdin: в аргументах его увидел бы любой процесс на сервере.
+  printf 'url = "%s/bot%s/getMe"\n' "$TG_API" "$new" | curl -fsS --max-time 20 -K - 2>/dev/null |
+    grep -Eq '"ok": *true' ||
     { echo "Telegram не принял токен, оставляю старый." >&2; exit 1; }
   (umask 077 && printf '%s\n' "$new" >"$BOTHOME/token.new")
   chown ccbot:ccbot "$BOTHOME/token.new"

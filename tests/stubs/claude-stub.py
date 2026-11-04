@@ -91,6 +91,10 @@ def main():
             "type": "content_block_delta", "index": 0,
             "delta": {"type": "text_delta", "text": text[start:start + 400]}}})
         time.sleep(0.005)
+    if "ОБРЫВ" in prompt:
+        emit({"type": "result", "subtype": "error_during_execution", "is_error": True, "session_id": session,
+              "result": "You have hit your limit"})
+        return 1
     emit({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}, "session_id": session})
     emit({"type": "result", "subtype": "success", "is_error": False, "session_id": session, "result": text})
     sys.stdin.read()  # the host closes stdin after the result

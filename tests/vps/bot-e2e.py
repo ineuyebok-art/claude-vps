@@ -53,12 +53,10 @@ stub.unlink(missing_ok=True)
 shutil.copy("/src/tests/stubs/claude-stub.py", stub)
 os.chown(stub, pathlib.Path(HOME).stat().st_uid, pathlib.Path(HOME).stat().st_gid)
 stub.chmod(0o755)
-for path in (BOT / "state.json",):
-    path.unlink(missing_ok=True)
+(BOT / "state.json").unlink(missing_ok=True)
 pathlib.Path(BOT / "bind-code").write_text("E2ECODE123\n", encoding="ascii")
 run("chown", "ccbot:ccbot", str(BOT / "bind-code"))
 run("systemctl", "restart", "ccbot")
-os.environ.pop("X", None)
 
 
 def wait(condition, what, timeout=20):
@@ -169,7 +167,7 @@ wait(lambda: not pathlib.Path(f"/proc/{child}").exists() and not pathlib.Path(f"
      "children to die")
 ok("Stop kills children and daemons of the task")
 
-subprocess.run(["sudo", "-u", "claude", "-H", "env", f"CC_TASK=dev", "/usr/local/lib/claude-vps/cc-hook", "Stop"],
+subprocess.run(["sudo", "-u", "claude", "-H", "env", "CC_TASK=dev", "/usr/local/lib/claude-vps/cc-hook", "Stop"],
                input=b'{"session_id": "s1"}', check=True)
 wait(lambda: has_text("<b>dev</b>: готово"), "hook notification")
 ok("hook notification reaches the bot")

@@ -70,6 +70,8 @@ HELP = (
 
 SAFETY = (
     "<b>Безопасность</b>\n\n"
+    "• Ссылки claude.ai и claude.com открывай только на рабочем столе сервера. "
+    "Клик по такой ссылке на ПК или телефоне покажет Anthropic твой настоящий IP.\n"
     "• VS Code и расширения — только из Microsoft Marketplace, не Cursor, VSCodium или Windsurf.\n"
     "• Поставь облачный пароль в Telegram.\n"
     "• За границей — местная SIM/eSIM или Wi-Fi, не роуминг.\n"

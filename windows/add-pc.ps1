@@ -262,7 +262,6 @@ function Set-VsCode {
     Merge-JsonSetting $settings @{
         'remote.SSH.remotePlatform'     = @{ 'claude-vps' = 'linux' }
         'remote.SSH.defaultExtensions'  = @('ms-vscode.live-server', 'tomoki1207.pdf')
-        'security.workspace.trust.enabled' = $false
     }
 }
 

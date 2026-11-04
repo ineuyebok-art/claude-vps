@@ -7,13 +7,13 @@ if [[ ! "$name" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; then
   echo "Имя сессии: латиница, цифры, дефис (до 40 знаков)." >&2
   exit 2
 fi
-t() { tmux -S "$SOCK" "$@"; }
+t() { tmux -u -S "$SOCK" "$@"; }
 if ! t has-session -t "=$name" 2>/dev/null; then
   dir="$PWD"
   [[ "$dir" != "$HOME" ]] || dir="$HOME/chat"
   t new-session -d -s "$name" -c "$dir" -x 200 -y 50 -e "CC_TASK=$name" "${CCVPS_LIB:-/usr/local/lib/claude-vps}/cc-run"
 fi
 if [[ -n "${TMUX:-}" ]]; then
-  exec tmux -S "$SOCK" switch-client -t "=$name"
+  exec tmux -u -S "$SOCK" switch-client -t "=$name"
 fi
-exec tmux -S "$SOCK" attach-session -t "=$name"
+exec tmux -u -S "$SOCK" attach-session -t "=$name"

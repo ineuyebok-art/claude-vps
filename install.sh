@@ -51,6 +51,8 @@ preflight() {
   [[ "$id" == ubuntu && "$version" == 24.04 ]] ||
     die "Нужна Ubuntu 24.04, а здесь: $pretty. Переустанови систему в панели хостера и запусти снова."
   export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
+  # Минимальные образы не задают язык, и tmux показал бы кириллицу знаками подчёркивания.
+  grep -qs '^LANG=' /etc/default/locale || echo 'LANG=C.UTF-8' >>/etc/default/locale
   if ! command -v curl >/dev/null || [[ ! -f /etc/ssl/certs/ca-certificates.crt ]]; then
     apt-get update -qq
     apt-get install -y -qq curl ca-certificates >/dev/null
@@ -60,8 +62,13 @@ preflight() {
   [[ "$free_kb" -gt 8000000 ]] || die "На диске меньше 8 ГБ свободного места."
 }
 
+# Адрес с токеном передаём через stdin: в аргументах его увидел бы любой процесс на сервере.
+get_me() {
+  printf 'url = "%s/bot%s/getMe"\n' "$TG_API" "$1" | curl -fsS --max-time 20 -K - 2>/dev/null
+}
+
 check_token() {
-  curl -fsS --max-time 20 "$TG_API/bot$1/getMe" 2>/dev/null | grep -Eq '"ok": *true'
+  get_me "$1" | grep -Eq '"ok": *true'
 }
 
 ask_token() {
@@ -96,7 +103,7 @@ install_packages() {
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends \
     tmux git jq python3 sudo ufw openssh-server openssh-client cron rsync procps \
-    iproute2 unattended-upgrades ca-certificates curl locales >/dev/null
+    iproute2 unattended-upgrades ca-certificates curl >/dev/null
   cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
@@ -121,7 +128,10 @@ fetch_source() {
     COMMIT="$(git -C "$SRC" rev-parse HEAD)"
   fi
   install -d -m 755 "$OPT"
-  rsync -a --delete --exclude .git --exclude tests "$SRC"/ "$OPT"/
+  # На сервере нужны только бот и server/: остальное здесь никогда не запускается.
+  install -d -m 755 "$OPT/bot" "$OPT/server"
+  rsync -a --delete --exclude __pycache__ "$SRC/bot/" "$OPT/bot/"
+  rsync -a --delete --exclude __pycache__ "$SRC/server/" "$OPT/server/"
   chown -R root:root "$OPT"
   chmod -R a+rX,go-w "$OPT"
   [[ -z "${tmp:-}" ]] || rm -rf "$tmp"
@@ -150,7 +160,7 @@ setup_users() {
 
   install -d -m 755 "$LIB"
   local f
-  for f in as-claude keys cc-hook cc-run watch; do
+  for f in as-claude keys cc-hook cc-run watch open-on-desktop; do
     [[ -f "$OPT/server/bin/$f" ]] && install -m 755 -o root -g root "$OPT/server/bin/$f" "$LIB/$f"
   done
   install -m 755 -o root -g root "$OPT/server/bin/cc" /usr/local/bin/cc
@@ -191,7 +201,11 @@ setup_home() {
   fi
   hooks="$LIB/cc-hook"
   tmp="$(mktemp)"
-  jq --arg h "$hooks" --arg home "$HOME_C" '
+  # Чтение и поиск в интернете идут без вопросов, поэтому учётные данные закрыты отдельно:
+  # иначе обманутый Claude прочитал бы вход в аккаунт и отправил его наружу.
+  jq --arg h "$hooks" --arg home "$HOME_C" --argjson deny '[
+    "Read(~/.claude/.credentials.json)", "Read(~/.claude.json)", "Read(~/.vnc/**)", "Read(~/.ssh/**)"
+  ]' '
     def hook($e): {hooks: [{type: "command", command: ($h + " " + $e)}]};
     .hooks.Stop = [hook("Stop")]
     | .hooks.Notification = [hook("Notification")]
@@ -199,16 +213,50 @@ setup_home() {
     | .hooks.PreToolUse = [hook("PreToolUse")]
     | .permissions.additionalDirectories =
         (((.permissions.additionalDirectories // []) + [$home + "/inbox", $home + "/outbox"]) | unique)
+    | .permissions.deny = (((.permissions.deny // []) + $deny) | unique)
+    | .autoInstallIdeExtension = false
+    | .env.CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL = "1"
   ' "$settings" >"$tmp"
   install -m 600 -o claude -g claude "$tmp" "$settings"
   rm -f "$tmp"
 
-  # ~/.local/bin — в конец PATH: иначе обманутый Claude подменил бы там sudo.
-  # PATH не перезаписываем: терминал VS Code кладёт туда свою команду code.
-  # shellcheck disable=SC2016 # $PATH раскроется в .bashrc
-  local line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$PATH:$HOME/.local/bin" ;; esac'
-  grep -qxF "$line" "$HOME_C/.bashrc" 2>/dev/null || echo "$line" >>"$HOME_C/.bashrc"
-  chown claude:claude "$HOME_C/.bashrc"
+  setup_bashrc
+  setup_trust
+}
+
+setup_bashrc() {
+  # В начале файла: дальше .bashrc выходит для неинтерактивных команд вроде `ssh хост claude`.
+  # ~/.local/bin — в конец PATH, а сам PATH не перезаписываем: терминал VS Code кладёт туда code.
+  # shellcheck disable=SC2016 # $PATH и $HOME раскроются в .bashrc
+  local tmp block='# claude-vps start
+unset SSH_CLIENT SSH_CONNECTION
+export BROWSER=/usr/local/lib/claude-vps/open-on-desktop
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$PATH:$HOME/.local/bin" ;; esac
+# claude-vps end'
+  tmp="$(mktemp)"
+  {
+    printf '%s\n' "$block"
+    # shellcheck disable=SC2016 # в шаблоне строка из прежних версий
+    sed -e '/^# claude-vps start$/,/^# claude-vps end$/d' \
+      -e '/^case ":\$PATH:" in \*":\$HOME\/.local\/bin:"\*)/d' "$HOME_C/.bashrc"
+  } >"$tmp"
+  install -m 644 -o claude -g claude "$tmp" "$HOME_C/.bashrc"
+  rm -f "$tmp"
+}
+
+setup_trust() {
+  # Без этого первая задача из /run навсегда останется на вопросе о доверии к папке.
+  local conf="$HOME_C/.claude.json" tmp
+  tmp="$(mktemp)"
+  if ! jq -e . "$conf" >/dev/null 2>&1; then
+    echo '{}' >"$conf"
+  fi
+  jq --arg chat "$HOME_C/chat" --arg projects "$HOME_C/projects" '
+    .projects[$chat].hasTrustDialogAccepted = true
+    | .projects[$projects].hasTrustDialogAccepted = true
+  ' "$conf" >"$tmp"
+  install -m 600 -o claude -g claude "$tmp" "$conf"
+  rm -f "$tmp"
 }
 
 install_claude_code() {
@@ -277,7 +325,7 @@ setup_desktop() {
   step "Ставлю рабочий стол (пакетов много, это несколько минут)"
   apt-get install -y -qq --no-install-recommends \
     tigervnc-standalone-server tigervnc-common tigervnc-tools \
-    xfce4 xfce4-terminal dbus-x11 dbus-user-session x11-xkb-utils x11-xserver-utils xauth \
+    xfce4 xfce4-terminal dbus-x11 x11-xkb-utils \
     xdg-utils exo-utils adwaita-icon-theme fonts-dejavu fonts-noto-core fonts-noto-color-emoji >/dev/null
   install_chromium
 
@@ -333,6 +381,7 @@ setup_services() {
 
   # claude-tmux не перезапускаем: иначе обновление прервёт идущие задачи.
   systemctl enable --now claude-tmux.service >/dev/null
+  as_claude tmux -S "$HOME_C/.cc/tmux.sock" source-file "$ETC/tmux.conf" 2>/dev/null || true
   systemctl enable --now claude-update.timer claude-watch.timer >/dev/null
   systemctl enable --now claude-vnc.service claude-desktop.service >/dev/null
   systemctl enable ccbot.service >/dev/null
@@ -381,8 +430,25 @@ setup_ipv6() {
   fi
 }
 
+hide_login_records() {
+  # Адрес ПК не должен лежать там, где его прочитает Claude: `who`, `last`.
+  cat >/etc/tmpfiles.d/zz-claude-vps.conf <<'EOF'
+z /run/utmp 0640 root utmp -
+z /var/log/wtmp 0640 root utmp -
+z /var/log/lastlog 0640 root utmp -
+EOF
+  chmod 640 /run/utmp /var/log/wtmp /var/log/lastlog 2>/dev/null || true
+  if [[ -f /etc/logrotate.d/wtmp ]]; then
+    sed -i 's/create 0664 root utmp/create 0640 root utmp/' /etc/logrotate.d/wtmp
+  fi
+}
+
 setup_firewall() {
   CURRENT="firewall"
+  if ufw status 2>/dev/null | grep -q '^Status: active' && [[ "$(ufw show added | grep -c '^ufw ')" == 1 ]] &&
+    ufw show added | grep -q 'allow 22/tcp'; then
+    return 0 # сброс отключил бы защиту на время обновления
+  fi
   step "Включаю firewall: открыт только порт 22"
   ufw --force reset >/dev/null
   ufw default deny incoming >/dev/null
@@ -411,9 +477,14 @@ PermitRootLogin no
 AllowUsers claude
 AllowAgentForwarding no
 AllowTcpForwarding local
+AllowStreamLocalForwarding local
 X11Forwarding no
 PermitTunnel no
 GatewayPorts no
+PermitUserRC no
+PrintLastLog no
+MaxAuthTries 3
+LoginGraceTime 30
 EOF
   install -d -m 755 -o root -g root /run/sshd
   sshd -t || die "Ошибка в настройках SSH, вход оставлен как был."
@@ -424,8 +495,7 @@ EOF
 summary() {
   CURRENT="итог"
   local bot_name
-  bot_name="$(curl -fsS --max-time 15 "$TG_API/bot$(cat "$BOTHOME/token")/getMe" 2>/dev/null |
-    jq -r '.result.username // empty' 2>/dev/null || true)"
+  bot_name="$(get_me "$(cat "$BOTHOME/token")" | jq -r '.result.username // empty' 2>/dev/null || true)"
   printf '\n\033[1;32mГотово.\033[0m\n'
   printf '  Сервер:     %s, страна: %s\n' "${SERVER_IP:-не определён}" "${SERVER_COUNTRY:-не определена}"
   printf '  Версия:     %s\n' "${COMMIT:0:12}"
@@ -454,6 +524,7 @@ main() {
   setup_services
   make_bind_code
   setup_ipv6
+  hide_login_records
   setup_firewall
   lock_ssh
   systemctl start claude-watch.service

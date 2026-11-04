@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# BROWSER на сервере. Claude открывает ссылки здесь, откуда бы его ни запустили.
+# Без этого в терминале VS Code вход в Claude открылся бы в браузере на ПК, с адреса ПК.
+DISPLAY=:1 nohup chromium --no-first-run --no-default-browser-check --password-store=basic "$1" >/dev/null 2>&1 &
+echo "Ссылка открыта в Chromium на сервере: ярлык «Claude — рабочий стол»." >&2
+exit 0

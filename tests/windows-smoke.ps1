@@ -120,15 +120,6 @@ $typed = powershell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $re
 Assert-True ($typed -match '^@\{~\}/inbox/screen-\d{8}-\d{6}\.png') "paste-shot types the mention: $typed"
 Assert-True (Get-ChildItem $inbox -Filter 'screen-*.png') 'paste-shot saves the png'
 
-# Which winget IDs exist (informational: this decides the IDs used in add-pc.ps1).
-foreach ($id in 'Microsoft.VisualStudioCode', 'Microsoft.WindowsTerminal', 'TigerVNC.TigerVNC') {
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        & winget show --exact --id $id --accept-source-agreements --disable-interactivity | Select-Object -First 3
-        "winget $id exit $LASTEXITCODE"
-    } else {
-        'winget is not on this runner'
-    }
-}
 & $mutagen sync terminate --all
 & $mutagen daemon stop
 'All Windows smoke checks passed'

@@ -1,5 +1,6 @@
 """/devices, /status, modes, instructions, /help, /sessions, /project."""
 import json
+import subprocess
 import threading
 import time
 import unittest
@@ -163,8 +164,6 @@ class Status(BotCase):
         self.assertEqual(args[args.index("--model") + 1], "opus")
 
     def test_instructions_flow_keeps_system_part(self):
-        import subprocess
-        import sys
         subprocess.run(config.AS_CLAUDE + ["claude-md-system"], input=b"system text", check=True)
         self.press("i:show")
         self.wait_text("Мои инструкции")
@@ -181,7 +180,6 @@ class Status(BotCase):
         text = (self.home / ".claude/CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("system text", text)
         self.assertNotIn("отвечай коротко", text)
-        self.assertTrue(sys.executable)
 
 
 class Sessions(BotCase):
@@ -245,7 +243,6 @@ class Project(BotCase):
         self.assertIsNone(self.state.account(OWNER)["session"])
         self.message(text="в проекте")
         self.wait(lambda: len(self.calls()) == 2, what="run")
-        self.assertTrue(self.calls()[1])
         self.wait_text("Ответ 1: <b>в проекте")
         account = self.state.account(OWNER)
         self.assertTrue(account["cwd"].endswith("projects/demo"))

@@ -81,6 +81,22 @@ class RealClaude(BotCase):
         self.wait_text("Настоящий ответ", 60)
         self.assertFalse(target.exists())
 
+    def test_credentials_are_closed_even_though_reading_is_free(self):
+        (self.home / ".claude/.credentials.json").write_text('{"token": "SECRETCREDS"}', encoding="utf-8")
+        (self.home / ".claude/settings.json").write_text(json.dumps({"permissions": {"deny": [
+            "Read(~/.claude/.credentials.json)"]}}), encoding="utf-8")
+        self.message(text=f"RUNREAD:{self.home}/.claude/.credentials.json покажи")
+        self.wait_text("Настоящий ответ", 60)
+        self.assertFalse(any("SECRETCREDS" in json.dumps(r, ensure_ascii=False) for r in self.api.requests))
+
+    def test_ordinary_file_is_read_without_question(self):
+        (self.home / "inbox/note.txt").write_text("SECRETNOTE", encoding="utf-8")
+        self.settings()
+        self.message(text=f"RUNREAD:{self.home}/inbox/note.txt покажи")
+        self.wait_text("Настоящий ответ", 60)
+        self.assertTrue(any("SECRETNOTE" in json.dumps(r, ensure_ascii=False) for r in self.api.requests))
+        self.assertFalse(any("Claude просит" in t for t in self.fake.texts()))
+
     def test_parallel_fork_answers_while_first_runs(self):
         self.message(text="SLOW первый")
         self.wait(lambda: any(r.started.is_set() for runs in self.bot.active.values() for r in runs), 60, "init")

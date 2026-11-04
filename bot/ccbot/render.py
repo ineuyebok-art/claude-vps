@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 
 ASSETS = Path(__file__).parent / "assets"
-TG_LIMIT = 4096
 CHUNK = 3800
 
 TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$")

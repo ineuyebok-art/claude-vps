@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Запускает Claude внутри tmux. После выхода из Claude окно остаётся терминалом.
 export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+export BROWSER="${CCVPS_LIB:-/usr/local/lib/claude-vps}/open-on-desktop"
+unset SSH_CLIENT SSH_CONNECTION
 args=()
 prompt=""
 while [[ $# -gt 0 ]]; do

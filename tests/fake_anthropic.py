@@ -51,7 +51,8 @@ class FakeAnthropic:
                 has_result = any(isinstance(m.get("content"), list)
                                  and any(b.get("type") == "tool_result" for b in m["content"]) for m in messages)
                 write = re.search(r"RUNWRITE:([^\s\"\\\\]+)", text)
-                tool = ("RUNTOOL" in text or write) and not has_result
+                read = re.search(r"RUNREAD:([^\s\"\\\\]+)", text)
+                tool = ("RUNTOOL" in text or write or read) and not has_result
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
                 self.send_header("connection", "close")
@@ -62,11 +63,13 @@ class FakeAnthropic:
                     "usage": {"input_tokens": 5, "output_tokens": 1}}})
                 if tool:
                     self.event("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {
-                        "type": "tool_use", "id": "toolu_1", "name": "Write" if write else "Bash", "input": {}}})
+                        "type": "tool_use", "id": "toolu_1", "name": "Write" if write else "Read" if read else "Bash", "input": {}}})
                     self.event("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {
                         "type": "input_json_delta",
-                        "partial_json": json.dumps({"file_path": write.group(1), "content": "written"} if write else
-                                                   {"command": fake.tool_command, "description": "test"})}})
+                        "partial_json": json.dumps(
+                            {"file_path": write.group(1), "content": "written"} if write else
+                            {"file_path": read.group(1)} if read else
+                            {"command": fake.tool_command, "description": "test"})}})
                     self.event("content_block_stop", {"type": "content_block_stop", "index": 0})
                     self.event("message_delta", {"type": "message_delta", "delta": {
                         "stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 5}})

@@ -60,11 +60,12 @@ def schedule_snapshot():
     for folder in USER_UNITS:
         if folder.is_dir():
             for path in folder.rglob("*"):
-                if path.is_file() or path.is_symlink():
-                    try:
-                        items[f"systemd: {path.name}"] = sha(path.read_bytes())
-                    except OSError:
-                        items[f"systemd: {path.name}"] = "?"
+                # Root не идёт по ссылкам и не читает большие файлы из папки claude.
+                if path.is_symlink():
+                    items[f"systemd: {path.name}"] = sha(os.readlink(path).encode())
+                elif path.is_file():
+                    with path.open("rb") as f:
+                        items[f"systemd: {path.name}"] = sha(f.read(1024 * 1024))
     return items
 
 
